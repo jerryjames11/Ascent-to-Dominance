@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useGameStore, SESSION_BILL_CAPACITY } from "../state/gameStore";
 import { computeNationalAgenda, projectAllVotes } from "../systems/legislatureSystem";
+import { computeCabinetEffects } from "../systems/cabinetSystem";
 import { ISSUE_CATALOG } from "../types/legislature";
 import { regionOptionsForCountry } from "../systems/gridSystem";
 import type { IdeologyPosition } from "../types/grid";
@@ -21,6 +22,7 @@ export function LegislatureScreen() {
   const acceptAmendment = useGameStore((s) => s.acceptAmendment);
   const callVote = useGameStore((s) => s.callVote);
   const session = useGameStore((s) => s.session);
+  const cabinet = useGameStore((s) => s.cabinet);
 
   const [title, setTitle] = useState("");
   const [issueId, setIssueId] = useState(ISSUE_CATALOG[0].id);
@@ -37,10 +39,11 @@ export function LegislatureScreen() {
   const agenda = useMemo(() => (grid ? computeNationalAgenda(grid, scopeRegionIds) : []), [grid, scopeRegionIds, gridVersion]);
 
   const activeBill = bills.find((b) => b.id === activeBillId);
+  const whipBonus = useMemo(() => computeCabinetEffects(cabinet).whipBonus, [cabinet]);
   const projections = useMemo(() => {
     if (!activeBill || !legislature) return [];
-    return projectAllVotes(activeBill, legislature.legislators, legislature.factions, agenda);
-  }, [activeBill, legislature, agenda]);
+    return projectAllVotes(activeBill, legislature.legislators, legislature.factions, agenda, whipBonus);
+  }, [activeBill, legislature, agenda, whipBonus]);
 
   if (!country || !legislature) return null;
 

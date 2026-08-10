@@ -45,6 +45,15 @@ const SUBNATIONAL_CHAMBER: Record<1 | 2, { name: string; seatCount: number }> = 
   2: { name: "State/Regional Legislature", seatCount: 120 },
 };
 
+/** Sec 14 stretch: "ambitious legislators run a background simplified campaign-sim so future
+ *  rivals arrive with real trajectories." Full background sim is out of scope for now — this
+ *  picks the most disaffected "climber" as a named future opponent instead of a generic one. */
+export function pickRisingChallenger(legislature: GeneratedLegislature): Legislator | undefined {
+  const climbers = legislature.legislators.filter((l) => l.archetype === "climber" && l.relationshipToPlayer < -10);
+  if (climbers.length === 0) return undefined;
+  return climbers.reduce((worst, l) => (l.relationshipToPlayer < worst.relationshipToPlayer ? l : worst));
+}
+
 export function generateLegislature(country: CountrySchema, playerIdeology: IdeologyPosition, seed: string, officeTier: 1 | 2 | 3 | 4 = 4): GeneratedLegislature {
   const rng = new Rng(`${seed}-legislature`);
   const nationalChamber = country.legislatureStructure.chambers.find((c) => c.selectionMethod === "elected") ?? country.legislatureStructure.chambers[0];

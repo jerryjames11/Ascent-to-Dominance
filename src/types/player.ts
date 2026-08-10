@@ -110,6 +110,7 @@ export interface CareerStats {
   sponsoredBillsTotal: number;
   bipartisanBillsPassed: number; // passed with >=30% of yea seats from outside the player's party
   crossPartyHeavyBillsPassed: number; // passed with >=50% of yea seats from outside the player's party
+  highCorruptionStreakWeeks: number; // consecutive serving-weeks with corruption > 50 and no scandal
 }
 
 export type RelationshipRole =

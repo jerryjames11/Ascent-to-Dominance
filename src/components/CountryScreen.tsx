@@ -1,5 +1,15 @@
 import { useState } from "react";
 import { useGameStore, SESSION_LENGTH_WEEKS, SESSION_BILL_CAPACITY } from "../state/gameStore";
+import { portfolioSlotsForTier, PORTFOLIO_EFFECT_DESCRIPTIONS } from "../data/portfolios";
+import type { AppointeeCandidate } from "../types/cabinet";
+
+const SOURCE_LABEL: Record<string, string> = {
+  loyalist: "Loyalist ally",
+  "co-opted-rival": "Co-opted rival",
+  donor: "Donor appointee",
+  specialist: "Backstory-matched specialist",
+  generic: "Generic pick",
+};
 
 export function CountryScreen() {
   const country = useGameStore((s) => s.country);
@@ -148,11 +158,99 @@ export function CountryScreen() {
             )}
           </div>
 
-          <div className="card">
-            <h3>Cabinet</h3>
-            <p className="faint">Appointment power and portfolios arrive in Phase 2.</p>
-          </div>
+          <CabinetCard tier={currentOffice.tier} />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CabinetCard({ tier }: { tier: 1 | 2 | 3 | 4 }) {
+  const cabinet = useGameStore((s) => s.cabinet);
+  const getCandidatesForSlot = useGameStore((s) => s.getCandidatesForSlot);
+  const appointToPortfolio = useGameStore((s) => s.appointToPortfolio);
+  const dismissAppointee = useGameStore((s) => s.dismissAppointee);
+  const consultAppointee = useGameStore((s) => s.consultAppointee);
+  const absoluteWeek = useGameStore((s) => s.absoluteWeek);
+  const [openSlotId, setOpenSlotId] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<AppointeeCandidate[]>([]);
+
+  const slots = portfolioSlotsForTier(tier);
+
+  function openSlot(slotId: string) {
+    setOpenSlotId(slotId);
+    setCandidates(getCandidatesForSlot(slotId));
+  }
+
+  return (
+    <div className="card">
+      <h3>Cabinet</h3>
+      <div className="stack" style={{ gap: 10 }}>
+        {slots.map((slot) => {
+          const appointee = cabinet.find((a) => a.slotId === slot.slotId);
+          const canConsult = appointee && (appointee.lastConsultedWeek === null || absoluteWeek - appointee.lastConsultedWeek > 4);
+          return (
+            <div key={slot.slotId}>
+              <div className="row between">
+                <div>
+                  <strong style={{ fontSize: "0.88rem" }}>{slot.title}</strong>
+                  <p className="faint" style={{ margin: "2px 0 0" }}>{PORTFOLIO_EFFECT_DESCRIPTIONS[slot.portfolioId]}</p>
+                </div>
+                {!appointee && (
+                  <button className="btn btn-sm" onClick={() => openSlot(slot.slotId)}>
+                    Appoint
+                  </button>
+                )}
+              </div>
+
+              {appointee && (
+                <div style={{ marginTop: 6 }}>
+                  <div className="row between">
+                    <span>
+                      {appointee.name} <span className="faint">— {SOURCE_LABEL[appointee.source]}</span>
+                    </span>
+                    <div className="row" style={{ gap: 6 }}>
+                      <button className="btn btn-ghost btn-sm" disabled={!canConsult} onClick={() => consultAppointee(appointee.id)}>
+                        Consult
+                      </button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => dismissAppointee(appointee.id)}>
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap: 10, marginTop: 4 }}>
+                    <div style={{ flex: 1 }}>
+                      <span className="faint">Loyalty {Math.round(appointee.loyalty)}</span>
+                      <div className={`meter ${appointee.loyalty < 30 ? "danger" : ""}`}><span style={{ width: `${appointee.loyalty}%` }} /></div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <span className="faint">Competence {Math.round(appointee.competence)}</span>
+                      <div className="meter"><span style={{ width: `${appointee.competence}%` }} /></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {openSlotId === slot.slotId && (
+                <div className="stack" style={{ marginTop: 8, gap: 6 }}>
+                  {candidates.map((c, i) => (
+                    <div key={i} className="option-card" onClick={() => { appointToPortfolio(slot.slotId, c); setOpenSlotId(null); }}>
+                      <div className="row between">
+                        <strong style={{ fontSize: "0.85rem" }}>{c.name}</strong>
+                        <span className="badge">{SOURCE_LABEL[c.source]}</span>
+                      </div>
+                      <p className="faint" style={{ margin: "4px 0" }}>{c.flavor}</p>
+                      <span className="faint">Loyalty {c.loyalty} · Competence {c.competence}</span>
+                    </div>
+                  ))}
+                  <button className="btn btn-ghost btn-sm" onClick={() => setOpenSlotId(null)}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

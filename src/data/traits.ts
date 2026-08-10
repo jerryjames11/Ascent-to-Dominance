@@ -28,9 +28,10 @@ export const TRAITS: Trait[] = [
   { id: "broken-promise", name: "Broken Promise", description: "A Promise Ledger entry broke. Scoped Authenticity penalty, opposition ammo.", category: "legislature", negative: true },
   { id: "kept-faith", name: "Kept Faith", description: "80%+ term fulfillment. Authenticity bonus.", category: "legislature" },
 
-  // Personal reputation (earnable in Phase 1 via scandal events)
+  // Personal reputation
   { id: "scandal-scarred", name: "Scandal-Scarred", description: "Survived 2+ major scandals. Reduced future severity, lower Authenticity ceiling.", category: "reputation", negative: true },
   { id: "clean-hands", name: "Clean Hands", description: "Near-zero corruption across a term. Authenticity + soft-power bonus.", category: "reputation" },
+  { id: "untouchable", name: "Untouchable", description: "Sustained high corruption with no exposure. Stronger donor ties, rising catastrophic-exposure risk.", category: "reputation", negative: true },
 ];
 
 export function getTrait(id: string): Trait | undefined {

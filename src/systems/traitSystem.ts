@@ -33,6 +33,7 @@ export function evaluateNewTraits(profile: ProfileState): string[] {
   );
   maybe("legislative-workhorse", s.sponsoredBillsTotal >= 10);
   maybe("scandal-scarred", s.scandalEvents >= 2);
+  maybe("untouchable", s.highCorruptionStreakWeeks >= 20);
 
   return newly;
 }

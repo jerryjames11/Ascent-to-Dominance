@@ -23,8 +23,9 @@ function effectiveBillIdeology(bill: Bill): IdeologyPosition {
 }
 
 /** Sec 14 vote_score: ideological distance, faction discipline pressure, relationship, constituent
- *  salience, archetype modifier — surfaced to the player as a legible probability. */
-export function projectVote(bill: Bill, legislator: Legislator, faction: Faction, agenda: AgendaItem[]): VoteProjection {
+ *  salience, archetype modifier — surfaced to the player as a legible probability. `whipBonus`
+ *  (0-1) is the Chief of Staff cabinet effect (Sec 16), added flat when the player sponsored the bill. */
+export function projectVote(bill: Bill, legislator: Legislator, faction: Faction, agenda: AgendaItem[], whipBonus = 0): VoteProjection {
   const billIdeology = effectiveBillIdeology(bill);
   const maxDist = Math.sqrt(3) * 200;
   const dist = ideologyDistance(legislator.ideology, billIdeology);
@@ -47,13 +48,14 @@ export function projectVote(bill: Bill, legislator: Legislator, faction: Faction
     survivor: constituentSalience,
   };
 
-  const raw = 0.5 + (ideologyScore - 0.5) * 0.7 + disciplineScore + relationshipScore + constituentSalience + archetypeModifier[legislator.archetype];
+  const raw =
+    0.5 + (ideologyScore - 0.5) * 0.7 + disciplineScore + relationshipScore + constituentSalience + archetypeModifier[legislator.archetype] + (bill.sponsoredByPlayer ? whipBonus : 0);
   return { legislatorId: legislator.id, probability: Math.max(0.02, Math.min(0.98, raw)) };
 }
 
-export function projectAllVotes(bill: Bill, legislators: Legislator[], factions: Faction[], agenda: AgendaItem[]): VoteProjection[] {
+export function projectAllVotes(bill: Bill, legislators: Legislator[], factions: Faction[], agenda: AgendaItem[], whipBonus = 0): VoteProjection[] {
   const factionById = new Map(factions.map((f) => [f.id, f]));
-  return legislators.map((l) => projectVote(bill, l, factionById.get(l.factionId)!, agenda));
+  return legislators.map((l) => projectVote(bill, l, factionById.get(l.factionId)!, agenda, whipBonus));
 }
 
 export function resolveVote(bill: Bill, legislators: Legislator[], projections: VoteProjection[], rng: Rng): VoteResult {
@@ -117,11 +119,12 @@ export function createBill(
   };
 }
 
-/** Applies a passed bill's effect to the grid — Sec 9 "effects touch the demographic grid unevenly". */
-export function applyBillPassage(bill: Bill, grid: LiveGrid): void {
+/** Applies a passed bill's effect to the grid — Sec 9 "effects touch the demographic grid unevenly".
+ *  `issueIntensityBoost` is the Treasury/Health-Education cabinet effect (Sec 16) for this bill's issue. */
+export function applyBillPassage(bill: Bill, grid: LiveGrid, issueIntensityBoost = 0): void {
   // Passed bills read as delivering for their targeted audience; direction/targeting already encode
   // "who benefits" — magnitude alone scales how strongly they feel it.
-  const magnitude = (bill.intensity / 100) * 6;
+  const magnitude = (bill.intensity / 100) * 6 * (1 + issueIntensityBoost);
   const effect: BillGridEffect = {
     billId: bill.id,
     targetCells: bill.targetRegionId

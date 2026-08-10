@@ -24,10 +24,13 @@ import {
   type ActionTarget,
 } from "../systems/campaignSystem";
 import { resolveElection, type ElectionResult } from "../systems/electionSystem";
-import { generateLegislature, type GeneratedLegislature } from "../systems/legislatorGen";
+import { generateLegislature, pickRisingChallenger, type GeneratedLegislature } from "../systems/legislatorGen";
 import { computeNationalAgenda, projectAllVotes, resolveVote, applyBillPassage } from "../systems/legislatureSystem";
 import { awardTrait, evaluateNewTraits } from "../systems/traitSystem";
 import { nudgeIdeology, ideologyDistance } from "../systems/driftSystem";
+import { generateCandidates, computeCabinetEffects, tickCabinetWeek } from "../systems/cabinetSystem";
+import { portfolioSlotsForTier } from "../data/portfolios";
+import type { Appointee, AppointeeCandidate, PortfolioId } from "../types/cabinet";
 import { Rng } from "../systems/rng";
 
 export type Phase =
@@ -83,6 +86,7 @@ interface GameState {
   legislature: GeneratedLegislature | null;
   bills: Bill[];
   activeBillId: string | null;
+  cabinet: Appointee[];
   profile: ProfileState;
   pollTier: PollsterTier;
 
@@ -103,6 +107,10 @@ interface GameState {
   honorDonorAsk: (id: string) => void;
   ignoreDonorAsk: (id: string) => void;
   breakPromise: (id: string) => void;
+  getCandidatesForSlot: (slotId: string) => AppointeeCandidate[];
+  appointToPortfolio: (slotId: string, candidate: AppointeeCandidate) => void;
+  dismissAppointee: (id: string) => void;
+  consultAppointee: (id: string) => void;
   endTerm: (choice: "run-again" | "run-next-tier" | "retire") => void;
   resetGame: () => void;
 }
@@ -149,6 +157,7 @@ function defaultCareerStats(): CareerStats {
     sponsoredBillsTotal: 0,
     bipartisanBillsPassed: 0,
     crossPartyHeavyBillsPassed: 0,
+    highCorruptionStreakWeeks: 0,
   };
 }
 
@@ -212,6 +221,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   legislature: null,
   bills: [],
   activeBillId: null,
+  cabinet: [],
   profile: freshProfile(),
   pollTier: "low",
 
@@ -258,24 +268,41 @@ export const useGameStore = create<GameState>((set, get) => ({
       lastElectionResult: null,
       legislature: null,
       bills: [],
+      cabinet: [],
       profile,
       servingTab: "profile",
     });
   },
 
   announceCandidacy: (officeId) => {
-    const { country, player, grid, seed, absoluteWeek, profile } = get();
+    const { country, player, grid, seed, absoluteWeek, profile, legislature } = get();
     if (!country || !player || !grid) return;
     const office = country.officeLadder.find((o) => o.id === officeId);
     if (!office) return;
     const scopeRegionIds = scopeForOffice(country, office, player.homeRegionId);
     const isReelection = get().currentOffice?.officeId === officeId;
     const opponents = generateOpponents(country, office, `${seed}-w${absoluteWeek}`, country.electoralSystem === "run-off" ? 3 : 2);
+
+    // Sec 14 stretch: a disaffected "climber" from the outgoing legislature can arrive as a
+    // named, better-known challenger instead of a fully generic one.
+    const challenger = legislature ? pickRisingChallenger(legislature) : undefined;
+    let challengerNote: string | null = null;
+    if (challenger && opponents.length > 0) {
+      opponents[0] = {
+        ...opponents[0],
+        name: challenger.name,
+        ideology: challenger.ideology,
+        pollingSupport: Math.min(55, opponents[0].pollingSupport + 12),
+      };
+      challengerNote = `${challenger.name}, once a rising voice in your own chamber, is now challenging you for ${office.title}.`;
+    }
+
     const donorGoodwillBonus = Math.max(-6000, Math.min(15000, profile.donorGoodwill * 350));
     const campaign = initCampaignState(office, country, scopeRegionIds, opponents, player, isReelection, donorGoodwillBonus);
 
     const nextProfile = { ...profile, careerStats: { ...profile.careerStats, oppoResearchUsedThisCampaign: 0 } };
     pushEvent(nextProfile, absoluteWeek, "candidacy-announced", `Announced candidacy for ${office.title}.`);
+    if (challengerNote) pushEvent(nextProfile, absoluteWeek, "candidacy-announced", challengerNote);
     nextProfile.relationships = [
       ...nextProfile.relationships.filter((r) => r.role !== "rival"),
       ...opponents.map((o) => ({ id: o.id, name: o.name, role: "rival" as const, score: 0, historyLog: [`Running against you for ${office.title}.`] })),
@@ -391,6 +418,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           currentOffice: { officeId: office.id, title: office.title, tier: office.tier, startedWeek: newAbsoluteWeek },
           legislature,
           bills: [],
+          cabinet: [],
           session: sessionForWeek(0),
         });
       } else {
@@ -404,12 +432,13 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   answerEvent: (choice) => {
-    const { campaign, grid, absoluteWeek } = get();
+    const { campaign, grid, absoluteWeek, cabinet } = get();
     if (!campaign || !grid) return;
     const eventType = campaign.pendingEvent?.type;
     const outcome = resolveEventSystem(campaign, grid, choice);
+    const dampening = 1 - computeCabinetEffects(cabinet).scandalDampening;
     const profile = { ...get().profile, careerStats: { ...get().profile.careerStats } };
-    profile.authenticity = clamp(profile.authenticity + outcome.authenticityDelta);
+    profile.authenticity = clamp(profile.authenticity + outcome.authenticityDelta * (outcome.authenticityDelta < 0 ? dampening : 1));
     profile.corruptionScore = clamp(profile.corruptionScore + outcome.corruptionDelta);
     if (eventType === "gaffe") profile.careerStats.gaffeEvents += 1;
     if (eventType === "scandal") profile.careerStats.scandalEvents += 1;
@@ -430,7 +459,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setServingTab: (tab) => set({ servingTab: tab }),
 
   advanceServingWeek: () => {
-    const { grid, currentOffice, absoluteWeek } = get();
+    const { grid, currentOffice, absoluteWeek, seed, cabinet, profile } = get();
     if (!grid || !currentOffice) return;
     grid.tickWeek();
     const newAbsoluteWeek = absoluteWeek + 1;
@@ -439,7 +468,25 @@ export const useGameStore = create<GameState>((set, get) => ({
     const targetIndex = Math.floor(weeksIntoTerm / SESSION_LENGTH_WEEKS);
     const session =
       existingSession && existingSession.index === targetIndex ? existingSession : { index: targetIndex, billsProposedThisSession: 0 };
-    set({ absoluteWeek: newAbsoluteWeek, gridVersion: get().gridVersion + 1, session });
+
+    const rng = new Rng(`${seed}-servetick-${newAbsoluteWeek}`);
+    const nextCabinet = cabinet.map((a) => ({ ...a }));
+    const { leaks } = tickCabinetWeek(nextCabinet, newAbsoluteWeek, rng);
+    const nextProfile = { ...profile, careerStats: { ...profile.careerStats } };
+    for (const leak of leaks) {
+      nextProfile.authenticity = clamp(nextProfile.authenticity - 5);
+      nextProfile.corruptionScore = clamp(nextProfile.corruptionScore + 4);
+      pushEvent(nextProfile, newAbsoluteWeek, "scandal", leak.description);
+    }
+    if (nextProfile.corruptionScore > 50 && leaks.length === 0) {
+      nextProfile.careerStats.highCorruptionStreakWeeks += 1;
+    } else if (nextProfile.corruptionScore <= 50) {
+      nextProfile.careerStats.highCorruptionStreakWeeks = 0;
+    }
+    const newTraits = evaluateNewTraits(nextProfile);
+    pushEarnedTraitEvents(nextProfile, newAbsoluteWeek, newTraits);
+
+    set({ absoluteWeek: newAbsoluteWeek, gridVersion: get().gridVersion + 1, session, cabinet: nextCabinet, profile: nextProfile });
   },
 
   proposeBill: (title, issueId, intensity, ideology, targetRegionId) => {
@@ -497,7 +544,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   callVote: (billId) => {
-    const { bills, legislature, grid, seed, absoluteWeek, campaign, country, profile, currentOffice, player } = get();
+    const { bills, legislature, grid, seed, absoluteWeek, campaign, country, profile, currentOffice, player, cabinet } = get();
     if (!legislature || !grid || !country || !player) return;
     const bill = bills.find((b) => b.id === billId);
     if (!bill) return;
@@ -506,7 +553,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       campaign?.scopeRegionIds ??
       (heldOffice ? scopeForOffice(country, heldOffice, player.homeRegionId) : regionOptionsForCountry(country).map((r) => r.id));
     const agenda: AgendaItem[] = computeNationalAgenda(grid, scopeRegionIds);
-    const projections = projectAllVotes(bill, legislature.legislators, legislature.factions, agenda);
+    const cabinetEffects = computeCabinetEffects(cabinet);
+    const projections = projectAllVotes(bill, legislature.legislators, legislature.factions, agenda, cabinetEffects.whipBonus);
     const rng = new Rng(`${seed}-vote-${absoluteWeek}-${billId}`);
     const result = resolveVote(bill, legislature.legislators, projections, rng);
 
@@ -514,7 +562,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     let nextPlayer = player;
 
     if (result.passed) {
-      applyBillPassage(bill, grid);
+      applyBillPassage(bill, grid, cabinetEffects.issueIntensityBoost[bill.issueId] ?? 0);
 
       const legislatorById = new Map(legislature.legislators.map((l) => [l.id, l]));
       const nonPartyYea = result.records
@@ -548,7 +596,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   honorDonorAsk: (id) => {
-    const { profile } = get();
+    const { profile, absoluteWeek } = get();
     const ask = profile.donorLedger.find((d) => d.id === id);
     if (!ask || ask.fulfilled !== null) return;
     const nextProfile = { ...profile };
@@ -557,6 +605,18 @@ export const useGameStore = create<GameState>((set, get) => ({
     nextProfile.authenticity = clamp(nextProfile.authenticity - 3);
     nextProfile.donorGoodwill = nextProfile.donorGoodwill + 10;
     nextProfile.relationships = bumpDonorRelationship(profile.relationships, 15, `Honored: "${ask.ask}"`);
+
+    // Donor/Promise tension (Sec 5): this donor ask specifically trades off against economic
+    // commitments — honoring it walks back any pending promise on that ground automatically.
+    const conflicting = nextProfile.promiseLedger.find((p) => p.status === "pending" && (p.coalitionTag === "economy" || p.coalitionTag === "taxes"));
+    if (conflicting) {
+      nextProfile.promiseLedger = nextProfile.promiseLedger.map((p) => (p.id === conflicting.id ? { ...p, status: "broken" as const } : p));
+      pushEvent(nextProfile, absoluteWeek, "scandal", `Honoring a donor ask meant walking back: "${conflicting.text}"`);
+      if (awardTrait(nextProfile, "broken-promise")) pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("broken-promise")?.name}.`);
+    }
+
+    const newTraits = evaluateNewTraits(nextProfile);
+    pushEarnedTraitEvents(nextProfile, absoluteWeek, newTraits);
     set({ profile: nextProfile });
   },
 
@@ -573,12 +633,13 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   breakPromise: (id) => {
-    const { profile, absoluteWeek } = get();
+    const { profile, absoluteWeek, cabinet } = get();
     const promise = profile.promiseLedger.find((p) => p.id === id);
     if (!promise || promise.status !== "pending") return;
+    const dampening = 1 - computeCabinetEffects(cabinet).scandalDampening;
     const nextProfile = { ...profile };
     nextProfile.promiseLedger = profile.promiseLedger.map((p) => (p.id === id ? { ...p, status: "broken" as const } : p));
-    nextProfile.authenticity = clamp(nextProfile.authenticity - 10);
+    nextProfile.authenticity = clamp(nextProfile.authenticity - 10 * dampening);
     const awarded = awardTrait(nextProfile, "broken-promise");
     if (awarded) pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("broken-promise")?.name}.`);
     pushEvent(nextProfile, absoluteWeek, "scandal", `Walked back a promise: "${promise.text}"`);
@@ -603,7 +664,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
 
     if (choice === "retire") {
-      set({ phase: "career-ended", officeHistory: history, currentOffice: null, profile: nextProfile, termsServedByOffice: nextTermsServed, session: null });
+      set({ phase: "career-ended", officeHistory: history, currentOffice: null, profile: nextProfile, termsServedByOffice: nextTermsServed, session: null, cabinet: [] });
       return;
     }
 
@@ -611,14 +672,82 @@ export const useGameStore = create<GameState>((set, get) => ({
       const idx = country.officeLadder.findIndex((o) => o.id === currentOffice.officeId);
       const next = country.officeLadder[idx + 1];
       if (next) {
-        set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null });
+        set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null, cabinet: [] });
         return;
       }
     }
 
     // run-again (re-election) or fallback if no next tier exists — OfficeLadder itself blocks
     // re-announcing an office once termsServedByOffice reaches its termLimit.
-    set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null });
+    set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null, cabinet: [] });
+  },
+
+  getCandidatesForSlot: (slotId) => {
+    const { country, currentOffice, player, profile, seed } = get();
+    if (!country || !currentOffice || !player) return [];
+    const slots = portfolioSlotsForTier(currentOffice.tier);
+    const slot = slots.find((s) => s.slotId === slotId);
+    if (!slot) return [];
+    return generateCandidates(slot, country.id, player.backstoryId, profile.relationships, `${seed}-${currentOffice.officeId}`);
+  },
+
+  appointToPortfolio: (slotId, candidate) => {
+    const { country, currentOffice, cabinet, absoluteWeek, profile } = get();
+    if (!country || !currentOffice) return;
+    const slots = portfolioSlotsForTier(currentOffice.tier);
+    const slot = slots.find((s) => s.slotId === slotId);
+    if (!slot) return;
+
+    const appointee: Appointee = {
+      id: `appointee-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      slotId,
+      portfolioId: slot.portfolioId as PortfolioId,
+      name: candidate.name,
+      source: candidate.source,
+      loyalty: candidate.loyalty,
+      competence: candidate.competence,
+      appointedWeek: absoluteWeek,
+      lastConsultedWeek: null,
+    };
+
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "office-assumed", `Appointed ${candidate.name} as ${slot.title}.`);
+
+    if (candidate.source === "co-opted-rival" && candidate.sourceRelationshipId) {
+      nextProfile.relationships = nextProfile.relationships.map((r) =>
+        r.id === candidate.sourceRelationshipId ? { ...r, score: Math.min(100, r.score + 30), historyLog: [...r.historyLog, `Co-opted into your cabinet as ${slot.title}.`] } : r
+      );
+    }
+    if (candidate.source === "donor" && candidate.sourceRelationshipId) {
+      nextProfile.relationships = nextProfile.relationships.map((r) =>
+        r.id === candidate.sourceRelationshipId ? { ...r, score: Math.min(100, r.score + 15), historyLog: [...r.historyLog, `Their pick got the ${slot.title} appointment.`] } : r
+      );
+      nextProfile.corruptionScore = clamp(nextProfile.corruptionScore + 5);
+      // Repays the Donor Ledger directly, per Sec 5.
+      const pendingAsk = nextProfile.donorLedger.find((d) => d.fulfilled === null);
+      if (pendingAsk) nextProfile.donorLedger = nextProfile.donorLedger.map((d) => (d.id === pendingAsk.id ? { ...d, fulfilled: true } : d));
+    }
+    if (slot.portfolioId === "central-bank" && candidate.source === "loyalist") {
+      // "Forcing loyalist control costs Institutional Strength" — Institutional Strength itself
+      // is a Phase 4 stat; the corruption cost lands now so the choice isn't free in the meantime.
+      nextProfile.corruptionScore = clamp(nextProfile.corruptionScore + 6);
+    }
+
+    set({ cabinet: [...cabinet.filter((a) => a.slotId !== slotId), appointee], profile: nextProfile });
+  },
+
+  dismissAppointee: (id) => {
+    const { cabinet, profile, absoluteWeek } = get();
+    const appointee = cabinet.find((a) => a.id === id);
+    if (!appointee) return;
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "term-ended", `${appointee.name} was dismissed or resigned.`);
+    set({ cabinet: cabinet.filter((a) => a.id !== id), profile: nextProfile });
+  },
+
+  consultAppointee: (id) => {
+    const { cabinet, absoluteWeek } = get();
+    set({ cabinet: cabinet.map((a) => (a.id === id ? { ...a, lastConsultedWeek: absoluteWeek, loyalty: Math.min(100, a.loyalty + 5) } : a)) });
   },
 
   resetGame: () =>
@@ -640,6 +769,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       legislature: null,
       bills: [],
       activeBillId: null,
+      cabinet: [],
       profile: freshProfile(),
       pollTier: "low",
     }),
