@@ -10,6 +10,7 @@ export function OfficeLadder() {
   const country = useGameStore((s) => s.country);
   const player = useGameStore((s) => s.player);
   const officeHistory = useGameStore((s) => s.officeHistory);
+  const termsServedByOffice = useGameStore((s) => s.termsServedByOffice);
   const announceCandidacy = useGameStore((s) => s.announceCandidacy);
 
   if (!country || !player) return null;
@@ -43,7 +44,16 @@ export function OfficeLadder() {
         {country.officeLadder.map((office) => {
           const eligible = office.tier <= highestTierHeld + 1;
           const ageOk = player.age >= office.eligibilityRules.minAge;
-          const canRun = eligible && ageOk;
+          const termsServed = termsServedByOffice[office.id] ?? 0;
+          const termLimited = office.termLimit !== null && termsServed >= office.termLimit;
+          const canRun = eligible && ageOk && !termLimited;
+          const disabledReason = !eligible
+            ? "Climb the ladder in order first"
+            : !ageOk
+            ? "You don't meet the minimum age yet"
+            : termLimited
+            ? "Term limit reached for this office"
+            : undefined;
           return (
             <div key={office.id} className="card">
               <div className="row between">
@@ -51,6 +61,12 @@ export function OfficeLadder() {
                   <div className="row" style={{ gap: 8 }}>
                     <h3 style={{ margin: 0 }}>{office.title}</h3>
                     <span className="badge">Tier {office.tier}</span>
+                    {termsServed > 0 && (
+                      <span className="faint">
+                        served {termsServed} term{termsServed > 1 ? "s" : ""}
+                        {office.termLimit ? ` / ${office.termLimit}` : ""}
+                      </span>
+                    )}
                   </div>
                   <p className="faint" style={{ margin: "6px 0 0" }}>
                     {office.termLength}-year term{office.termLimit ? `, ${office.termLimit}-term limit` : ", no term limit"} · min age {office.eligibilityRules.minAge}
@@ -58,12 +74,7 @@ export function OfficeLadder() {
                   </p>
                   <p className="faint" style={{ margin: "2px 0 0" }}>{WORLD_ACCESS_LABEL[office.grantsWorldAccess]}</p>
                 </div>
-                <button
-                  className="btn btn-primary"
-                  disabled={!canRun}
-                  title={!eligible ? "Climb the ladder in order first" : !ageOk ? "You don't meet the minimum age yet" : undefined}
-                  onClick={() => announceCandidacy(office.id)}
-                >
+                <button className="btn btn-primary" disabled={!canRun} title={disabledReason} onClick={() => announceCandidacy(office.id)}>
                   Announce
                 </button>
               </div>

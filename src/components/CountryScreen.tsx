@@ -1,13 +1,17 @@
 import { useState } from "react";
-import { useGameStore } from "../state/gameStore";
+import { useGameStore, SESSION_LENGTH_WEEKS, SESSION_BILL_CAPACITY } from "../state/gameStore";
 
 export function CountryScreen() {
   const country = useGameStore((s) => s.country);
   const grid = useGameStore((s) => s.grid);
   useGameStore((s) => s.gridVersion);
   const currentOffice = useGameStore((s) => s.currentOffice);
+  const absoluteWeek = useGameStore((s) => s.absoluteWeek);
+  const session = useGameStore((s) => s.session);
+  const termsServedByOffice = useGameStore((s) => s.termsServedByOffice);
   const bills = useGameStore((s) => s.bills);
   const endTerm = useGameStore((s) => s.endTerm);
+  const advanceServingWeek = useGameStore((s) => s.advanceServingWeek);
   const [confirmingEnd, setConfirmingEnd] = useState(false);
 
   if (!country || !grid || !currentOffice) return null;
@@ -20,8 +24,19 @@ export function CountryScreen() {
   const passedThisTerm = bills.filter((b) => b.status === "implemented").length;
   const failedThisTerm = bills.filter((b) => b.status === "failed").length;
 
+  const officeRung = country.officeLadder.find((o) => o.id === currentOffice.officeId)!;
   const idx = country.officeLadder.findIndex((o) => o.id === currentOffice.officeId);
   const nextOffice = country.officeLadder[idx + 1];
+
+  const termWeeks = officeRung.termLength * 52;
+  const weeksIntoTerm = absoluteWeek - currentOffice.startedWeek;
+  const termExpired = weeksIntoTerm >= termWeeks;
+  const termProgressPct = Math.min(100, Math.round((weeksIntoTerm / termWeeks) * 100));
+
+  const termsServed = termsServedByOffice[currentOffice.officeId] ?? 0;
+  const reelectionBlocked = officeRung.termLimit !== null && termsServed >= officeRung.termLimit;
+
+  const showChooser = confirmingEnd || termExpired;
 
   return (
     <div className="wide-column">
@@ -71,24 +86,52 @@ export function CountryScreen() {
               <span className="muted">Office</span>
               <span>{currentOffice.title}</span>
             </div>
-            <div className="row between">
-              <span className="muted">Bills passed</span>
-              <span>{passedThisTerm}</span>
+            <div className="row between" style={{ marginTop: 6 }}>
+              <span className="muted">Term progress</span>
+              <span>
+                week {Math.min(weeksIntoTerm, termWeeks)} / {termWeeks}
+              </span>
+            </div>
+            <div className={`meter ${termExpired ? "warn" : ""}`} style={{ marginTop: 4, marginBottom: 10 }}>
+              <span style={{ width: `${termProgressPct}%` }} />
             </div>
             <div className="row between">
-              <span className="muted">Bills failed</span>
-              <span>{failedThisTerm}</span>
+              <span className="muted">Legislative session</span>
+              <span className="faint">
+                Session {(session?.index ?? 0) + 1} · {session?.billsProposedThisSession ?? 0}/{SESSION_BILL_CAPACITY} bills introduced
+                {" "}
+                (resets every {SESSION_LENGTH_WEEKS} weeks)
+              </span>
+            </div>
+            <div className="row between">
+              <span className="muted">Bills passed / failed</span>
+              <span>
+                {passedThisTerm} / {failedThisTerm}
+              </span>
             </div>
             <hr className="divider" />
-            {!confirmingEnd ? (
-              <button className="btn btn-block" onClick={() => setConfirmingEnd(true)}>
-                End term
-              </button>
-            ) : (
+
+            {!termExpired && !showChooser && (
               <div className="stack">
-                <p className="faint">What's next?</p>
-                <button className="btn btn-primary btn-block" onClick={() => endTerm("run-again")}>
-                  Seek re-election — {currentOffice.title}
+                <button className="btn btn-primary btn-block" onClick={advanceServingWeek}>
+                  Advance a week
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setConfirmingEnd(true)}>
+                  End term early
+                </button>
+              </div>
+            )}
+
+            {showChooser && (
+              <div className="stack" style={{ marginTop: termExpired ? 0 : 10 }}>
+                <p className="faint">{termExpired ? "Your term has ended. What's next?" : "What's next?"}</p>
+                <button
+                  className="btn btn-primary btn-block"
+                  disabled={reelectionBlocked}
+                  title={reelectionBlocked ? "Term limit reached for this office" : undefined}
+                  onClick={() => endTerm("run-again")}
+                >
+                  {reelectionBlocked ? `Term limit reached — ${currentOffice.title}` : `Seek re-election — ${currentOffice.title}`}
                 </button>
                 <button className="btn btn-block" disabled={!nextOffice} onClick={() => endTerm("run-next-tier")}>
                   {nextOffice ? `Run for ${nextOffice.title}` : "No higher office available yet"}
@@ -96,9 +139,11 @@ export function CountryScreen() {
                 <button className="btn btn-danger btn-block" onClick={() => endTerm("retire")}>
                   Retire
                 </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setConfirmingEnd(false)}>
-                  Cancel
-                </button>
+                {!termExpired && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => setConfirmingEnd(false)}>
+                    Cancel
+                  </button>
+                )}
               </div>
             )}
           </div>

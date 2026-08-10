@@ -1,6 +1,6 @@
 // Campaign mechanics — Sec 7. Weekly actions write to the grid via GridWriter; player only ever
 // reads outcomes through polls (Sec 8), never raw cells.
-import type { DemographicSegment } from "../types/grid";
+import type { DemographicSegment, IdeologyPosition, GridCell } from "../types/grid";
 import type {
   CampaignState,
   CampaignResources,
@@ -81,7 +81,8 @@ export function initCampaignState(
   scopeRegionIds: string[],
   opponents: Opponent[],
   playerModifiers: { fundraisingSkill: number },
-  isReelection: boolean
+  isReelection: boolean,
+  donorGoodwillBonus = 0
 ): CampaignState {
   return {
     officeId: office.id,
@@ -93,7 +94,7 @@ export function initCampaignState(
     apRemaining: WEEKLY_ACTION_POINTS,
     stage: "exploratory",
     resources: {
-      money: 15000 + playerModifiers.fundraisingSkill * 100,
+      money: Math.max(2000, 15000 + playerModifiers.fundraisingSkill * 100 + donorGoodwillBonus),
       staffQuality: 35,
       politicalCapital: 20,
       stamina: 100,
@@ -118,6 +119,32 @@ export interface ActionOutcome {
   summary: string;
   authenticityDelta: number;
   corruptionDelta: number;
+  /** "debate" only — signed margin, positive = won. */
+  debateMargin?: number;
+  /** "oppo-research" only. */
+  backfired?: boolean;
+  /** "endorsement" only. */
+  endorsementSecured?: boolean;
+  /** "fundraise" only. */
+  moneyRaised?: number;
+  /** "position" only — population-weighted ideology of the audience courted, for the Drift Tracker. */
+  targetIdeology?: IdeologyPosition;
+}
+
+function avgCellIdeology(cells: GridCell[]): IdeologyPosition | undefined {
+  if (cells.length === 0) return undefined;
+  let economic = 0;
+  let social = 0;
+  let foreignPolicy = 0;
+  let weight = 0;
+  for (const c of cells) {
+    economic += c.ideology.economic * c.populationWeight;
+    social += c.ideology.social * c.populationWeight;
+    foreignPolicy += c.ideology.foreignPolicy * c.populationWeight;
+    weight += c.populationWeight;
+  }
+  if (weight === 0) return undefined;
+  return { economic: economic / weight, social: social / weight, foreignPolicy: foreignPolicy / weight };
 }
 
 function diminishingFactor(recentCountOnTarget: number): number {
@@ -187,6 +214,7 @@ export function applyWeeklyAction(
       state.resources.money += raised;
       outcome.summary = `Raised $${Math.round(raised).toLocaleString()}.`;
       outcome.corruptionDelta = 0.3;
+      outcome.moneyRaised = raised;
       break;
     }
     case "position": {
@@ -194,6 +222,7 @@ export function applyWeeklyAction(
       for (const c of cells) grid.adjustPersuasion(c.regionId, c.segmentId, gain);
       outcome.summary = `Staked a position with the targeted audience (+${gain.toFixed(1)} persuasion).`;
       outcome.authenticityDelta = rng.chance(0.25) ? -3 : 1;
+      outcome.targetIdeology = avgCellIdeology(cells);
       break;
     }
     case "debate": {
@@ -209,6 +238,7 @@ export function applyWeeklyAction(
           : margin < -0.05
           ? `Rough debate night (${gain.toFixed(1)} persuasion scope-wide).`
           : `Debate was a wash.`;
+      outcome.debateMargin = margin;
       break;
     }
     case "oppo-research": {
@@ -222,6 +252,7 @@ export function applyWeeklyAction(
         target0.pollingSupport = Math.max(2, target0.pollingSupport - 3.5);
         outcome.summary = `Opposition research against ${target0.name} landed (-3.5 their polling).`;
       }
+      outcome.backfired = backfire;
       break;
     }
     case "endorsement": {
@@ -234,6 +265,7 @@ export function applyWeeklyAction(
       } else {
         outcome.summary = `Courted an endorsement, but it didn't come through this week.`;
       }
+      outcome.endorsementSecured = secured;
       break;
     }
     case "gotv": {

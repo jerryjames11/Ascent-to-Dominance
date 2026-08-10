@@ -51,7 +51,8 @@ export interface PlayerCharacter {
   countryId: string;
   homeRegionId: string;
   backstoryId: BackstoryId;
-  ideology: IdeologyPosition;
+  ideology: IdeologyPosition; // current — drifts with positions taken and bills sponsored
+  startingIdeology: IdeologyPosition; // fixed at creation, for the Ideology Drift Tracker (Sec 5)
   charisma: number; // 0-100
   persuasionSkill: number; // 0-100
   fundraisingSkill: number; // 0-100
@@ -90,6 +91,25 @@ export interface DonorAsk {
   ask: string;
   fulfilled: boolean | null; // null = still pending
   weekMade: number;
+}
+
+/** Real, trackable counters behind Sec 17 trait thresholds. Some catalog traits (e.g. Party
+ *  Loyalist/Maverick) are defined around a personal voting record the player doesn't cast in
+ *  Phase 1 (they sponsor/whip, not vote as one of many seats) — those are approximated via
+ *  cross-party support on bills the player sponsors instead. */
+export interface CareerStats {
+  debateWins: number;
+  debateLosses: number;
+  bigFundraisingHauls: number;
+  endorsementsSecured: number;
+  oppoResearchUsedThisCampaign: number;
+  negativeCampaignWins: number;
+  gaffeEvents: number;
+  scandalEvents: number;
+  highTurnoutWins: number;
+  sponsoredBillsTotal: number;
+  bipartisanBillsPassed: number; // passed with >=30% of yea seats from outside the player's party
+  crossPartyHeavyBillsPassed: number; // passed with >=50% of yea seats from outside the player's party
 }
 
 export type RelationshipRole =
@@ -133,4 +153,7 @@ export interface ProfileState {
   careerTimeline: CareerEvent[];
   corruptionScore: number; // 0-100, influence/scandal risk
   authenticity: number; // 0-100
+  careerStats: CareerStats;
+  /** Accumulates from honoring/ignoring Donor Ledger asks; bankrolls (or drags down) the next campaign's starting money. */
+  donorGoodwill: number;
 }

@@ -1,14 +1,16 @@
 // Central game state machine. Phase 1 loop: character creation -> office select -> campaign ->
-// election result -> serving (Profile/Country/Legislature tabs) -> term end -> repeat.
+// election result -> serving (Profile/Country/Legislature tabs, real weekly ticks, sessions,
+// term limits) -> term end -> repeat.
 import { create } from "zustand";
 import type { CountrySchema, OfficeRung } from "../types/country";
 import type { IdeologyPosition } from "../types/grid";
-import type { PlayerCharacter, ProfileState, CareerEvent, RelationshipEntry } from "../types/player";
+import type { PlayerCharacter, ProfileState, CareerEvent, RelationshipEntry, CareerStats } from "../types/player";
 import type { CampaignState, WeeklyActionType } from "../types/campaign";
-import type { Bill, AgendaItem } from "../types/legislature";
+import type { Bill, AgendaItem, BillAmendment } from "../types/legislature";
 import { ISSUE_CATALOG } from "../types/legislature";
 import { SAMPLE_COUNTRIES } from "../data/sample-countries";
 import { getBackstory } from "../data/backstories";
+import { getTrait } from "../data/traits";
 import { buildGrid, LiveGrid, regionOptionsForCountry } from "../systems/gridSystem";
 import { commissionPoll, type PollsterTier } from "../systems/pollSystem";
 import {
@@ -24,6 +26,8 @@ import {
 import { resolveElection, type ElectionResult } from "../systems/electionSystem";
 import { generateLegislature, type GeneratedLegislature } from "../systems/legislatorGen";
 import { computeNationalAgenda, projectAllVotes, resolveVote, applyBillPassage } from "../systems/legislatureSystem";
+import { awardTrait, evaluateNewTraits } from "../systems/traitSystem";
+import { nudgeIdeology, ideologyDistance } from "../systems/driftSystem";
 import { Rng } from "../systems/rng";
 
 export type Phase =
@@ -53,6 +57,14 @@ export interface CharacterCreationInput {
   ideology: IdeologyPosition;
 }
 
+export interface SessionState {
+  index: number;
+  billsProposedThisSession: number;
+}
+
+export const SESSION_LENGTH_WEEKS = 13; // quarterly, Sec 9
+export const SESSION_BILL_CAPACITY = 2;
+
 interface GameState {
   phase: Phase;
   servingTab: ServingTab;
@@ -64,6 +76,8 @@ interface GameState {
   absoluteWeek: number;
   currentOffice: OfficeHeld | null;
   officeHistory: OfficeHeld[];
+  termsServedByOffice: Record<string, number>;
+  session: SessionState | null;
   campaign: CampaignState | null;
   lastElectionResult: ElectionResult | null;
   legislature: GeneratedLegislature | null;
@@ -81,9 +95,14 @@ interface GameState {
   setPollTier: (tier: PollsterTier) => void;
   continueFromElectionResult: () => void;
   setServingTab: (tab: ServingTab) => void;
-  proposeBill: (title: string, issueId: string, intensity: number, ideology: IdeologyPosition, targetRegionId?: string) => void;
+  advanceServingWeek: () => void;
+  proposeBill: (title: string, issueId: string, intensity: number, ideology: IdeologyPosition, targetRegionId?: string) => boolean;
   setActiveBill: (billId: string | null) => void;
+  acceptAmendment: (billId: string) => void;
   callVote: (billId: string) => void;
+  honorDonorAsk: (id: string) => void;
+  ignoreDonorAsk: (id: string) => void;
+  breakPromise: (id: string) => void;
   endTerm: (choice: "run-again" | "run-next-tier" | "retire") => void;
   resetGame: () => void;
 }
@@ -101,8 +120,50 @@ function scopeForOffice(country: CountrySchema, office: OfficeRung, homeRegionId
   return [homeRegionId];
 }
 
+function clamp(v: number, min = 0, max = 100): number {
+  return Math.max(min, Math.min(max, v));
+}
+
 function pushEvent(profile: ProfileState, absoluteWeek: number, type: CareerEvent["type"], description: string) {
   profile.careerTimeline.push({ absoluteWeek, type, description });
+}
+
+function pushEarnedTraitEvents(profile: ProfileState, absoluteWeek: number, newTraitIds: string[]) {
+  for (const id of newTraitIds) {
+    const trait = getTrait(id);
+    pushEvent(profile, absoluteWeek, "trait-earned", `Earned trait: ${trait?.name ?? id}.`);
+  }
+}
+
+function defaultCareerStats(): CareerStats {
+  return {
+    debateWins: 0,
+    debateLosses: 0,
+    bigFundraisingHauls: 0,
+    endorsementsSecured: 0,
+    oppoResearchUsedThisCampaign: 0,
+    negativeCampaignWins: 0,
+    gaffeEvents: 0,
+    scandalEvents: 0,
+    highTurnoutWins: 0,
+    sponsoredBillsTotal: 0,
+    bipartisanBillsPassed: 0,
+    crossPartyHeavyBillsPassed: 0,
+  };
+}
+
+function freshProfile(): ProfileState {
+  return {
+    earnedTraitIds: [],
+    promiseLedger: [],
+    donorLedger: [],
+    relationships: [],
+    careerTimeline: [],
+    corruptionScore: 0,
+    authenticity: 60,
+    careerStats: defaultCareerStats(),
+    donorGoodwill: 0,
+  };
 }
 
 function seedRelationships(legislature: GeneratedLegislature): RelationshipEntry[] {
@@ -119,6 +180,20 @@ function seedRelationships(legislature: GeneratedLegislature): RelationshipEntry
   return entries;
 }
 
+function bumpDonorRelationship(relationships: RelationshipEntry[], delta: number, note: string): RelationshipEntry[] {
+  const existing = relationships.find((r) => r.id === "donor-circle");
+  if (existing) {
+    return relationships.map((r) =>
+      r.id === "donor-circle" ? { ...r, score: Math.max(-100, Math.min(100, r.score + delta)), historyLog: [...r.historyLog, note] } : r
+    );
+  }
+  return [...relationships, { id: "donor-circle", name: "Donor Circle", role: "donor", score: Math.max(-100, Math.min(100, delta)), historyLog: [note] }];
+}
+
+function sessionForWeek(weeksIntoTerm: number): SessionState {
+  return { index: Math.floor(Math.max(0, weeksIntoTerm) / SESSION_LENGTH_WEEKS), billsProposedThisSession: 0 };
+}
+
 export const useGameStore = create<GameState>((set, get) => ({
   phase: "character-creation",
   servingTab: "profile",
@@ -130,20 +205,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   absoluteWeek: 0,
   currentOffice: null,
   officeHistory: [],
+  termsServedByOffice: {},
+  session: null,
   campaign: null,
   lastElectionResult: null,
   legislature: null,
   bills: [],
   activeBillId: null,
-  profile: {
-    earnedTraitIds: [],
-    promiseLedger: [],
-    donorLedger: [],
-    relationships: [],
-    careerTimeline: [],
-    corruptionScore: 0,
-    authenticity: 60,
-  },
+  profile: freshProfile(),
   pollTier: "low",
 
   createCharacter: (input) => {
@@ -157,6 +226,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       homeRegionId: input.homeRegionId,
       backstoryId: input.backstoryId,
       ideology: input.ideology,
+      startingIdeology: input.ideology,
       charisma: 50 + (backstory.statModifiers.baseCharismaDelta ?? 0) + (backstory.statModifiers.startingPersuasion ?? 0) * 0.3,
       persuasionSkill: 50 + (backstory.statModifiers.startingPersuasion ?? 0),
       fundraisingSkill: 50 + (backstory.statModifiers.donorNetworkStrength ?? 0) + (backstory.statModifiers.donorNetworkWeak ?? 0),
@@ -167,15 +237,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     const startingPersuasion = 30 + (backstory.statModifiers.startingPersuasion ?? 0) * 0.4 + (backstory.statModifiers.nameRecognition ?? 0) * 0.3;
     const grid = new LiveGrid(buildGrid(country, seed, player.ideology, startingPersuasion));
 
-    const profile: ProfileState = {
-      earnedTraitIds: [backstory.starterTraitId],
-      promiseLedger: [],
-      donorLedger: [],
-      relationships: [],
-      careerTimeline: [],
-      corruptionScore: 0,
-      authenticity: 60 + (backstory.statModifiers.authenticityPenalty ?? 0) + (backstory.statModifiers.authenticityPenaltyWorkingClass ?? 0) * 0.3,
-    };
+    const profile = freshProfile();
+    profile.earnedTraitIds = [backstory.starterTraitId];
+    profile.authenticity = 60 + (backstory.statModifiers.authenticityPenalty ?? 0) + (backstory.statModifiers.authenticityPenaltyWorkingClass ?? 0) * 0.3;
     pushEvent(profile, 0, "trait-earned" as CareerEvent["type"], `Entered politics as a ${backstory.name}.`);
 
     set({
@@ -188,6 +252,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       absoluteWeek: 0,
       currentOffice: null,
       officeHistory: [],
+      termsServedByOffice: {},
+      session: null,
       campaign: null,
       lastElectionResult: null,
       legislature: null,
@@ -205,9 +271,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     const scopeRegionIds = scopeForOffice(country, office, player.homeRegionId);
     const isReelection = get().currentOffice?.officeId === officeId;
     const opponents = generateOpponents(country, office, `${seed}-w${absoluteWeek}`, country.electoralSystem === "run-off" ? 3 : 2);
-    const campaign = initCampaignState(office, country, scopeRegionIds, opponents, player, isReelection);
+    const donorGoodwillBonus = Math.max(-6000, Math.min(15000, profile.donorGoodwill * 350));
+    const campaign = initCampaignState(office, country, scopeRegionIds, opponents, player, isReelection, donorGoodwillBonus);
 
-    const nextProfile = { ...profile };
+    const nextProfile = { ...profile, careerStats: { ...profile.careerStats, oppoResearchUsedThisCampaign: 0 } };
     pushEvent(nextProfile, absoluteWeek, "candidacy-announced", `Announced candidacy for ${office.title}.`);
     nextProfile.relationships = [
       ...nextProfile.relationships.filter((r) => r.role !== "rival"),
@@ -226,9 +293,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     const rng = new Rng(`${seed}-action-${absoluteWeek}-${campaign.weeksRemaining}-${actionType}`);
     const outcome = applyWeeklyAction(campaign, grid, player, actionType, target, rng);
 
-    const profile = { ...get().profile };
-    profile.authenticity = Math.max(0, Math.min(100, profile.authenticity + outcome.authenticityDelta));
-    profile.corruptionScore = Math.max(0, Math.min(100, profile.corruptionScore + outcome.corruptionDelta));
+    const profile = { ...get().profile, careerStats: { ...get().profile.careerStats } };
+    profile.authenticity = clamp(profile.authenticity + outcome.authenticityDelta);
+    profile.corruptionScore = clamp(profile.corruptionScore + outcome.corruptionDelta);
+
     if (actionType === "position" && target.issueId) {
       const issueLabel = ISSUE_CATALOG.find((i) => i.id === target.issueId)?.label ?? target.issueId;
       const audience = target.segmentFilter && Object.keys(target.segmentFilter).length > 0 ? Object.values(target.segmentFilter).join("/") : "voters broadly";
@@ -256,7 +324,31 @@ export const useGameStore = create<GameState>((set, get) => ({
       ];
     }
 
-    set({ campaign: { ...campaign }, gridVersion: get().gridVersion + 1, profile });
+    // Career-stat bookkeeping feeding Sec 17 trait thresholds.
+    let nextPlayer = player;
+    if (actionType === "debate" && outcome.debateMargin !== undefined) {
+      if (outcome.debateMargin > 0.05) profile.careerStats.debateWins += 1;
+      else if (outcome.debateMargin < -0.05) profile.careerStats.debateLosses += 1;
+    }
+    if (actionType === "fundraise" && outcome.moneyRaised !== undefined && outcome.moneyRaised > 6000) {
+      profile.careerStats.bigFundraisingHauls += 1;
+    }
+    if (actionType === "endorsement" && outcome.endorsementSecured) {
+      profile.careerStats.endorsementsSecured += 1;
+    }
+    if (actionType === "oppo-research") {
+      profile.careerStats.oppoResearchUsedThisCampaign += 1;
+    }
+    if (actionType === "position" && outcome.targetIdeology) {
+      const dist = ideologyDistance(player.ideology, outcome.targetIdeology);
+      nextPlayer = { ...player, ideology: nudgeIdeology(player.ideology, outcome.targetIdeology, 0.06) };
+      if (dist > 15) profile.authenticity = clamp(profile.authenticity - 0.4);
+    }
+
+    const newTraits = evaluateNewTraits(profile);
+    pushEarnedTraitEvents(profile, absoluteWeek, newTraits);
+
+    set({ campaign: { ...campaign }, gridVersion: get().gridVersion + 1, profile, player: nextPlayer });
     return outcome.summary;
   },
 
@@ -269,17 +361,25 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const event = maybeGenerateEvent(campaign, campaign.weeksRemaining, rng);
 
-    const pollRng = new Rng(`${seed}-pollpick-${newAbsoluteWeek}`);
     const polls = commissionPoll(grid, campaign.scopeRegionIds, campaign.weeksRemaining, get().pollTier, seed);
     campaign.polls = polls;
-    void pollRng;
 
     if (campaign.weeksRemaining <= 0 && !event) {
       const result = resolveElection(grid, country, campaign.scopeRegionIds, campaign.opponents);
-      const profile = { ...get().profile };
+      const profile = { ...get().profile, careerStats: { ...get().profile.careerStats } };
       const office = country.officeLadder.find((o) => o.id === campaign.officeId)!;
       if (result.winnerId === "player") {
         pushEvent(profile, newAbsoluteWeek, "election-won", `Won the race for ${office.title}.`);
+
+        const avgTurnout = campaign.scopeRegionIds.length
+          ? grid.getCellsInScope(campaign.scopeRegionIds).reduce((s, c) => s + c.turnoutEnthusiasm, 0) /
+            Math.max(1, grid.getCellsInScope(campaign.scopeRegionIds).length)
+          : 0;
+        if (avgTurnout >= 65) profile.careerStats.highTurnoutWins += 1;
+        if (profile.careerStats.oppoResearchUsedThisCampaign >= 3) profile.careerStats.negativeCampaignWins += 1;
+        const newTraits = evaluateNewTraits(profile);
+        pushEarnedTraitEvents(profile, newAbsoluteWeek, newTraits);
+
         const legislature = generateLegislature(country, get().player!.ideology, `${seed}-${office.id}-${newAbsoluteWeek}`, office.tier);
         profile.relationships = [...profile.relationships, ...seedRelationships(legislature)];
         pushEvent(profile, newAbsoluteWeek, "office-assumed", `Sworn in as ${office.title}.`);
@@ -291,6 +391,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           currentOffice: { officeId: office.id, title: office.title, tier: office.tier, startedWeek: newAbsoluteWeek },
           legislature,
           bills: [],
+          session: sessionForWeek(0),
         });
       } else {
         pushEvent(profile, newAbsoluteWeek, "election-lost", `Lost the race for ${office.title}.`);
@@ -303,13 +404,19 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   answerEvent: (choice) => {
-    const { campaign, grid, seed, absoluteWeek } = get();
+    const { campaign, grid, absoluteWeek } = get();
     if (!campaign || !grid) return;
-    resolveEventSystem(campaign, grid, choice);
-    const profile = { ...get().profile };
-    profile.authenticity = Math.max(0, Math.min(100, profile.authenticity));
-    void seed;
-    void absoluteWeek;
+    const eventType = campaign.pendingEvent?.type;
+    const outcome = resolveEventSystem(campaign, grid, choice);
+    const profile = { ...get().profile, careerStats: { ...get().profile.careerStats } };
+    profile.authenticity = clamp(profile.authenticity + outcome.authenticityDelta);
+    profile.corruptionScore = clamp(profile.corruptionScore + outcome.corruptionDelta);
+    if (eventType === "gaffe") profile.careerStats.gaffeEvents += 1;
+    if (eventType === "scandal") profile.careerStats.scandalEvents += 1;
+
+    const newTraits = evaluateNewTraits(profile);
+    pushEarnedTraitEvents(profile, absoluteWeek, newTraits);
+
     set({ campaign: { ...campaign }, gridVersion: get().gridVersion + 1, profile });
   },
 
@@ -322,8 +429,24 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   setServingTab: (tab) => set({ servingTab: tab }),
 
+  advanceServingWeek: () => {
+    const { grid, currentOffice, absoluteWeek } = get();
+    if (!grid || !currentOffice) return;
+    grid.tickWeek();
+    const newAbsoluteWeek = absoluteWeek + 1;
+    const weeksIntoTerm = newAbsoluteWeek - currentOffice.startedWeek;
+    const existingSession = get().session;
+    const targetIndex = Math.floor(weeksIntoTerm / SESSION_LENGTH_WEEKS);
+    const session =
+      existingSession && existingSession.index === targetIndex ? existingSession : { index: targetIndex, billsProposedThisSession: 0 };
+    set({ absoluteWeek: newAbsoluteWeek, gridVersion: get().gridVersion + 1, session });
+  },
+
   proposeBill: (title, issueId, intensity, ideology, targetRegionId) => {
-    const { bills, absoluteWeek } = get();
+    const { bills, absoluteWeek, session, profile } = get();
+    const activeSession = session ?? sessionForWeek(0);
+    if (activeSession.billsProposedThisSession >= SESSION_BILL_CAPACITY) return false;
+
     const bill: Bill = {
       id: `bill-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title,
@@ -337,10 +460,41 @@ export const useGameStore = create<GameState>((set, get) => ({
       weekProposed: absoluteWeek,
       status: "voting",
     };
-    set({ bills: [...bills, bill], activeBillId: bill.id });
+    const nextProfile = { ...profile, careerStats: { ...profile.careerStats, sponsoredBillsTotal: profile.careerStats.sponsoredBillsTotal + 1 } };
+    set({
+      bills: [...bills, bill],
+      activeBillId: bill.id,
+      session: { ...activeSession, billsProposedThisSession: activeSession.billsProposedThisSession + 1 },
+      profile: nextProfile,
+    });
+    return true;
   },
 
   setActiveBill: (billId) => set({ activeBillId: billId }),
+
+  acceptAmendment: (billId) => {
+    const { bills, legislature } = get();
+    if (!legislature) return;
+    const bill = bills.find((b) => b.id === billId);
+    if (!bill || bill.status !== "voting") return;
+    const opposing = legislature.factions.filter((f) => !f.isPlayerParty).sort((a, b) => b.seatShare - a.seatShare)[0];
+    if (!opposing) return;
+
+    const shiftPct = 0.3;
+    const amendment: BillAmendment = {
+      id: `amend-${Date.now()}`,
+      text: `Amended to accommodate ${opposing.name}'s concerns.`,
+      proposedByFactionId: opposing.id,
+      ideologyShift: {
+        economic: (opposing.ideologyCenter.economic - bill.ideology.economic) * shiftPct,
+        social: (opposing.ideologyCenter.social - bill.ideology.social) * shiftPct,
+        foreignPolicy: (opposing.ideologyCenter.foreignPolicy - bill.ideology.foreignPolicy) * shiftPct,
+      },
+      poisonPill: false,
+    };
+    const updatedBill: Bill = { ...bill, amendments: [...bill.amendments, amendment], intensity: Math.max(10, Math.round(bill.intensity * 0.85)) };
+    set({ bills: bills.map((b) => (b.id === billId ? updatedBill : b)) });
+  },
 
   callVote: (billId) => {
     const { bills, legislature, grid, seed, absoluteWeek, campaign, country, profile, currentOffice, player } = get();
@@ -356,30 +510,100 @@ export const useGameStore = create<GameState>((set, get) => ({
     const rng = new Rng(`${seed}-vote-${absoluteWeek}-${billId}`);
     const result = resolveVote(bill, legislature.legislators, projections, rng);
 
-    const nextProfile = { ...profile };
+    const nextProfile = { ...profile, careerStats: { ...profile.careerStats } };
+    let nextPlayer = player;
+
     if (result.passed) {
       applyBillPassage(bill, grid);
+
+      const legislatorById = new Map(legislature.legislators.map((l) => [l.id, l]));
+      const nonPartyYea = result.records
+        .filter((r) => r.support)
+        .reduce((sum, r) => {
+          const l = legislatorById.get(r.legislatorId);
+          if (!l) return sum;
+          const faction = legislature.factions.find((f) => f.id === l.factionId);
+          return faction && !faction.isPlayerParty ? sum + l.seatWeight : sum;
+        }, 0);
+      const crossPartyFraction = result.yeaSeats > 0 ? nonPartyYea / result.yeaSeats : 0;
+      if (crossPartyFraction >= 0.3) nextProfile.careerStats.bipartisanBillsPassed += 1;
+      if (crossPartyFraction >= 0.5) nextProfile.careerStats.crossPartyHeavyBillsPassed += 1;
+
       pushEvent(nextProfile, absoluteWeek, "bill-passed", `${bill.title} passed ${result.yeaSeats.toFixed(0)}-${result.naySeats.toFixed(0)}.`);
-      nextProfile.promiseLedger = nextProfile.promiseLedger.map((p) =>
-        p.status === "pending" && p.coalitionTag === bill.issueId ? { ...p, status: "fulfilled" as const } : p
-      );
+      const newStatus = bill.amendments.length > 0 ? ("compromised" as const) : ("fulfilled" as const);
+      nextProfile.promiseLedger = nextProfile.promiseLedger.map((p) => (p.status === "pending" && p.coalitionTag === bill.issueId ? { ...p, status: newStatus } : p));
+
+      const dist = ideologyDistance(player.ideology, bill.ideology);
+      nextPlayer = { ...player, ideology: nudgeIdeology(player.ideology, bill.ideology, 0.12) };
+      if (dist > 20) nextProfile.authenticity = clamp(nextProfile.authenticity - 1);
     } else {
       bill.status = "failed";
       pushEvent(nextProfile, absoluteWeek, "bill-failed", `${bill.title} failed ${result.yeaSeats.toFixed(0)}-${result.naySeats.toFixed(0)}.`);
     }
 
-    set({ bills: bills.map((b) => (b.id === billId ? bill : b)), gridVersion: get().gridVersion + 1, profile: nextProfile, activeBillId: null });
+    const newTraits = evaluateNewTraits(nextProfile);
+    pushEarnedTraitEvents(nextProfile, absoluteWeek, newTraits);
+
+    set({ bills: bills.map((b) => (b.id === billId ? bill : b)), gridVersion: get().gridVersion + 1, profile: nextProfile, player: nextPlayer, activeBillId: null });
+  },
+
+  honorDonorAsk: (id) => {
+    const { profile } = get();
+    const ask = profile.donorLedger.find((d) => d.id === id);
+    if (!ask || ask.fulfilled !== null) return;
+    const nextProfile = { ...profile };
+    nextProfile.donorLedger = profile.donorLedger.map((d) => (d.id === id ? { ...d, fulfilled: true } : d));
+    nextProfile.corruptionScore = clamp(nextProfile.corruptionScore + 8);
+    nextProfile.authenticity = clamp(nextProfile.authenticity - 3);
+    nextProfile.donorGoodwill = nextProfile.donorGoodwill + 10;
+    nextProfile.relationships = bumpDonorRelationship(profile.relationships, 15, `Honored: "${ask.ask}"`);
+    set({ profile: nextProfile });
+  },
+
+  ignoreDonorAsk: (id) => {
+    const { profile } = get();
+    const ask = profile.donorLedger.find((d) => d.id === id);
+    if (!ask || ask.fulfilled !== null) return;
+    const nextProfile = { ...profile };
+    nextProfile.donorLedger = profile.donorLedger.map((d) => (d.id === id ? { ...d, fulfilled: false } : d));
+    nextProfile.authenticity = clamp(nextProfile.authenticity + 5);
+    nextProfile.donorGoodwill = Math.max(-20, nextProfile.donorGoodwill - 10);
+    nextProfile.relationships = bumpDonorRelationship(profile.relationships, -15, `Ignored: "${ask.ask}"`);
+    set({ profile: nextProfile });
+  },
+
+  breakPromise: (id) => {
+    const { profile, absoluteWeek } = get();
+    const promise = profile.promiseLedger.find((p) => p.id === id);
+    if (!promise || promise.status !== "pending") return;
+    const nextProfile = { ...profile };
+    nextProfile.promiseLedger = profile.promiseLedger.map((p) => (p.id === id ? { ...p, status: "broken" as const } : p));
+    nextProfile.authenticity = clamp(nextProfile.authenticity - 10);
+    const awarded = awardTrait(nextProfile, "broken-promise");
+    if (awarded) pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("broken-promise")?.name}.`);
+    pushEvent(nextProfile, absoluteWeek, "scandal", `Walked back a promise: "${promise.text}"`);
+    set({ profile: nextProfile });
   },
 
   endTerm: (choice) => {
-    const { currentOffice, officeHistory, country, absoluteWeek, profile } = get();
+    const { currentOffice, officeHistory, country, absoluteWeek, profile, termsServedByOffice } = get();
     if (!currentOffice || !country) return;
     const nextProfile = { ...profile };
     pushEvent(nextProfile, absoluteWeek, "term-ended", `Term as ${currentOffice.title} ended.`);
     const history = [...officeHistory, currentOffice];
+    const nextTermsServed = { ...termsServedByOffice, [currentOffice.officeId]: (termsServedByOffice[currentOffice.officeId] ?? 0) + 1 };
+
+    const resolvedPromises = nextProfile.promiseLedger.filter((p) => p.status !== "pending");
+    const fulfilledLike = resolvedPromises.filter((p) => p.status === "fulfilled" || p.status === "compromised");
+    if (resolvedPromises.length >= 2 && fulfilledLike.length / resolvedPromises.length >= 0.8) {
+      if (awardTrait(nextProfile, "kept-faith")) pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("kept-faith")?.name}.`);
+    }
+    if (nextProfile.corruptionScore < 10) {
+      if (awardTrait(nextProfile, "clean-hands")) pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("clean-hands")?.name}.`);
+    }
 
     if (choice === "retire") {
-      set({ phase: "career-ended", officeHistory: history, currentOffice: null, profile: nextProfile });
+      set({ phase: "career-ended", officeHistory: history, currentOffice: null, profile: nextProfile, termsServedByOffice: nextTermsServed, session: null });
       return;
     }
 
@@ -387,13 +611,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       const idx = country.officeLadder.findIndex((o) => o.id === currentOffice.officeId);
       const next = country.officeLadder[idx + 1];
       if (next) {
-        set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile });
+        set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null });
         return;
       }
     }
 
-    // run-again (re-election) or fallback if no next tier exists
-    set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile });
+    // run-again (re-election) or fallback if no next tier exists — OfficeLadder itself blocks
+    // re-announcing an office once termsServedByOffice reaches its termLimit.
+    set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null });
   },
 
   resetGame: () =>
@@ -408,20 +633,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       absoluteWeek: 0,
       currentOffice: null,
       officeHistory: [],
+      termsServedByOffice: {},
+      session: null,
       campaign: null,
       lastElectionResult: null,
       legislature: null,
       bills: [],
       activeBillId: null,
-      profile: {
-        earnedTraitIds: [],
-        promiseLedger: [],
-        donorLedger: [],
-        relationships: [],
-        careerTimeline: [],
-        corruptionScore: 0,
-        authenticity: 60,
-      },
+      profile: freshProfile(),
       pollTier: "low",
     }),
 }));

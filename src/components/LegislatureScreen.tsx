@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useGameStore } from "../state/gameStore";
+import { useGameStore, SESSION_BILL_CAPACITY } from "../state/gameStore";
 import { computeNationalAgenda, projectAllVotes } from "../systems/legislatureSystem";
 import { ISSUE_CATALOG } from "../types/legislature";
 import { regionOptionsForCountry } from "../systems/gridSystem";
@@ -18,12 +18,15 @@ export function LegislatureScreen() {
   const activeBillId = useGameStore((s) => s.activeBillId);
   const setActiveBill = useGameStore((s) => s.setActiveBill);
   const proposeBill = useGameStore((s) => s.proposeBill);
+  const acceptAmendment = useGameStore((s) => s.acceptAmendment);
   const callVote = useGameStore((s) => s.callVote);
+  const session = useGameStore((s) => s.session);
 
   const [title, setTitle] = useState("");
   const [issueId, setIssueId] = useState(ISSUE_CATALOG[0].id);
   const [intensity, setIntensity] = useState(50);
   const [billIdeology, setBillIdeology] = useState<IdeologyPosition>({ economic: 0, social: 0, foreignPolicy: 0 });
+  const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
 
   const scopeRegionIds = useMemo(() => {
     if (!country || !player || !currentOffice) return [];
@@ -45,6 +48,9 @@ export function LegislatureScreen() {
     ? legislature.legislators.reduce((sum, l, i) => sum + (projections[i]?.probability ?? 0) * l.seatWeight, 0)
     : 0;
   const totalSeats = legislature.totalSeats;
+  const projectedShare = totalSeats > 0 ? projectedYea / totalSeats : 0;
+  const sessionCapacityLeft = SESSION_BILL_CAPACITY - (session?.billsProposedThisSession ?? 0);
+  const canProposeMore = sessionCapacityLeft > 0;
 
   return (
     <div className="wide-column">
@@ -95,7 +101,10 @@ export function LegislatureScreen() {
 
         <div className="stack">
           <div className="card">
-            <h3>Propose a bill</h3>
+            <div className="row between">
+              <h3 style={{ margin: 0 }}>Propose a bill</h3>
+              <span className="faint">{sessionCapacityLeft}/{SESSION_BILL_CAPACITY} left this session</span>
+            </div>
             <div className="stack">
               <label className="stack" style={{ gap: 4 }}>
                 <span className="label">Title</span>
@@ -125,14 +134,21 @@ export function LegislatureScreen() {
               </label>
               <button
                 className="btn btn-primary btn-block"
-                disabled={!title.trim()}
+                disabled={!title.trim() || !canProposeMore}
+                title={!canProposeMore ? `Session capacity reached — advance a week to reach the next session` : undefined}
                 onClick={() => {
-                  proposeBill(title.trim(), issueId, intensity, billIdeology);
-                  setTitle("");
+                  const ok = proposeBill(title.trim(), issueId, intensity, billIdeology);
+                  if (ok) {
+                    setTitle("");
+                    setBlockedMessage(null);
+                  } else {
+                    setBlockedMessage("This session's bill capacity is full — advance a week to open the next session.");
+                  }
                 }}
               >
                 Introduce bill
               </button>
+              {blockedMessage && <p className="faint">{blockedMessage}</p>}
             </div>
           </div>
 
@@ -145,8 +161,27 @@ export function LegislatureScreen() {
                 <strong>{Math.round(projectedYea)} / {Math.round(totalSeats)}</strong>
               </div>
               <div className="meter" style={{ marginTop: 6 }}>
-                <span style={{ width: `${Math.min(100, (projectedYea / totalSeats) * 100)}%` }} />
+                <span style={{ width: `${Math.min(100, projectedShare * 100)}%` }} />
               </div>
+
+              {projectedShare < 0.5 && activeBill.amendments.length === 0 && (
+                <div className="card" style={{ marginTop: 12, background: "var(--bg-sunken)" }}>
+                  <span className="badge badge-warn">Whip count is short</span>
+                  <p className="faint" style={{ margin: "6px 0" }}>
+                    The largest opposing faction will offer an amendment. Accepting waters the bill down (lower intensity,
+                    pulled toward their position) but should improve your whip count.
+                  </p>
+                  <div className="row">
+                    <button className="btn btn-sm" onClick={() => acceptAmendment(activeBill.id)}>Accept amendment</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => callVote(activeBill.id)}>Call the vote as-is</button>
+                  </div>
+                </div>
+              )}
+
+              {activeBill.amendments.length > 0 && (
+                <p className="faint" style={{ marginTop: 8 }}>Amended: {activeBill.amendments[activeBill.amendments.length - 1].text}</p>
+              )}
+
               <div className="row" style={{ marginTop: 12 }}>
                 <button className="btn btn-primary" onClick={() => callVote(activeBill.id)}>Call the vote</button>
                 <button className="btn btn-ghost" onClick={() => setActiveBill(null)}>Dismiss</button>
