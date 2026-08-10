@@ -1,0 +1,76 @@
+import { useGameStore } from "../state/gameStore";
+
+const WORLD_ACCESS_LABEL: Record<string, string> = {
+  none: "No World access",
+  observer: "Observer-level World influence",
+  full: "Full World-stage control",
+};
+
+export function OfficeLadder() {
+  const country = useGameStore((s) => s.country);
+  const player = useGameStore((s) => s.player);
+  const officeHistory = useGameStore((s) => s.officeHistory);
+  const announceCandidacy = useGameStore((s) => s.announceCandidacy);
+
+  if (!country || !player) return null;
+
+  const highestTierHeld = officeHistory.reduce((max, o) => Math.max(max, o.tier), 0);
+
+  return (
+    <div className="center-column">
+      <h1>{country.name} — Office Ladder</h1>
+      <p className="muted">
+        {highestTierHeld === 0
+          ? "Every career starts at the bottom. Announce your candidacy for the first rung."
+          : `You've held office up to Tier ${highestTierHeld}. Climb further, or run again where you left off.`}
+      </p>
+
+      {officeHistory.length > 0 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <h3>Career so far</h3>
+          <div className="stack">
+            {officeHistory.map((o, i) => (
+              <div key={i} className="row between">
+                <span>{o.title}</span>
+                <span className="faint">Tier {o.tier}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="stack">
+        {country.officeLadder.map((office) => {
+          const eligible = office.tier <= highestTierHeld + 1;
+          const ageOk = player.age >= office.eligibilityRules.minAge;
+          const canRun = eligible && ageOk;
+          return (
+            <div key={office.id} className="card">
+              <div className="row between">
+                <div>
+                  <div className="row" style={{ gap: 8 }}>
+                    <h3 style={{ margin: 0 }}>{office.title}</h3>
+                    <span className="badge">Tier {office.tier}</span>
+                  </div>
+                  <p className="faint" style={{ margin: "6px 0 0" }}>
+                    {office.termLength}-year term{office.termLimit ? `, ${office.termLimit}-term limit` : ", no term limit"} · min age {office.eligibilityRules.minAge}
+                    {office.grantsAppointmentPower ? " · appointment power" : ""}
+                  </p>
+                  <p className="faint" style={{ margin: "2px 0 0" }}>{WORLD_ACCESS_LABEL[office.grantsWorldAccess]}</p>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  disabled={!canRun}
+                  title={!eligible ? "Climb the ladder in order first" : !ageOk ? "You don't meet the minimum age yet" : undefined}
+                  onClick={() => announceCandidacy(office.id)}
+                >
+                  Announce
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
