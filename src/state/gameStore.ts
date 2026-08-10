@@ -31,6 +31,11 @@ import { nudgeIdeology, ideologyDistance } from "../systems/driftSystem";
 import { generateCandidates, computeCabinetEffects, tickCabinetWeek } from "../systems/cabinetSystem";
 import { portfolioSlotsForTier } from "../data/portfolios";
 import type { Appointee, AppointeeCandidate, PortfolioId } from "../types/cabinet";
+import { generateAiNations, computePlayerNationalStats, tickAiNation } from "../systems/worldSystem";
+import { tickTension, stageForTension } from "../systems/tensionSystem";
+import { DIPLOMATIC_ACTIONS } from "../systems/diplomacySystem";
+import { resolveWarTurn, applyWarDomesticImpact, checkWarResolution, negotiateSettlement, initWar } from "../systems/warSystem";
+import type { AiNation, NationalPowerStats, WarState, WarLegacyTag, WarGoalScope } from "../types/world";
 import { Rng } from "../systems/rng";
 
 export type Phase =
@@ -90,6 +95,14 @@ interface GameState {
   profile: ProfileState;
   pollTier: PollsterTier;
 
+  // World layer (Sec 10/11/18) — generated once the player first reaches national office
+  aiNations: AiNation[];
+  tensionByNationId: Record<string, number>;
+  tradeAgreementsByNationId: Record<string, boolean>;
+  worldStatModifiers: NationalPowerStats;
+  activeWar: WarState | null;
+  warLegacyTags: WarLegacyTag[];
+
   // actions
   createCharacter: (input: CharacterCreationInput) => void;
   announceCandidacy: (officeId: string) => void;
@@ -111,6 +124,11 @@ interface GameState {
   appointToPortfolio: (slotId: string, candidate: AppointeeCandidate) => void;
   dismissAppointee: (id: string) => void;
   consultAppointee: (id: string) => void;
+  getPlayerNationalStats: () => NationalPowerStats;
+  applyDiplomaticAction: (nationId: string, actionType: (typeof DIPLOMATIC_ACTIONS)[number]["type"]) => void;
+  declareWar: (nationId: string, goalScope: WarGoalScope) => void;
+  fundWar: () => boolean;
+  sueForPeace: () => void;
   endTerm: (choice: "run-again" | "run-next-tier" | "retire") => void;
   resetGame: () => void;
 }
@@ -203,6 +221,10 @@ function sessionForWeek(weeksIntoTerm: number): SessionState {
   return { index: Math.floor(Math.max(0, weeksIntoTerm) / SESSION_LENGTH_WEEKS), billsProposedThisSession: 0 };
 }
 
+function defaultWorldStatModifiers(): NationalPowerStats {
+  return { economy: 0, military: 0, diplomacy: 0, stability: 0, innovation: 0 };
+}
+
 export const useGameStore = create<GameState>((set, get) => ({
   phase: "character-creation",
   servingTab: "profile",
@@ -224,6 +246,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   cabinet: [],
   profile: freshProfile(),
   pollTier: "low",
+  aiNations: [],
+  tensionByNationId: {},
+  tradeAgreementsByNationId: {},
+  worldStatModifiers: defaultWorldStatModifiers(),
+  activeWar: null,
+  warLegacyTags: [],
 
   createCharacter: (input) => {
     const country = countryById(input.countryId);
@@ -271,6 +299,12 @@ export const useGameStore = create<GameState>((set, get) => ({
       cabinet: [],
       profile,
       servingTab: "profile",
+      aiNations: [],
+      tensionByNationId: {},
+      tradeAgreementsByNationId: {},
+      worldStatModifiers: defaultWorldStatModifiers(),
+      activeWar: null,
+      warLegacyTags: [],
     });
   },
 
@@ -408,8 +442,19 @@ export const useGameStore = create<GameState>((set, get) => ({
         pushEarnedTraitEvents(profile, newAbsoluteWeek, newTraits);
 
         const legislature = generateLegislature(country, get().player!.ideology, `${seed}-${office.id}-${newAbsoluteWeek}`, office.tier);
-        profile.relationships = [...profile.relationships, ...seedRelationships(legislature)];
+        // Each term generates a fresh chamber — drop the outgoing one's leadership entries
+        // rather than accumulating stale duplicates every re-election.
+        profile.relationships = [...profile.relationships.filter((r) => r.role !== "party-leader"), ...seedRelationships(legislature)];
         pushEvent(profile, newAbsoluteWeek, "office-assumed", `Sworn in as ${office.title}.`);
+
+        // World layer unlocks at national office (Sec 10 progressive unlock) — generate the AI
+        // nations once, the first time the player reaches tier 3+.
+        const existingNations = get().aiNations;
+        const worldInit =
+          office.tier >= 3 && existingNations.length === 0
+            ? { aiNations: generateAiNations(country.id, seed), tensionByNationId: {} as Record<string, number> }
+            : null;
+
         set({
           absoluteWeek: newAbsoluteWeek,
           lastElectionResult: result,
@@ -420,6 +465,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           bills: [],
           cabinet: [],
           session: sessionForWeek(0),
+          ...(worldInit ?? {}),
         });
       } else {
         pushEvent(profile, newAbsoluteWeek, "election-lost", `Lost the race for ${office.title}.`);
@@ -459,8 +505,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   setServingTab: (tab) => set({ servingTab: tab }),
 
   advanceServingWeek: () => {
-    const { grid, currentOffice, absoluteWeek, seed, cabinet, profile } = get();
-    if (!grid || !currentOffice) return;
+    const { grid, currentOffice, absoluteWeek, seed, cabinet, profile, country, aiNations, tensionByNationId, tradeAgreementsByNationId, activeWar, worldStatModifiers, bills } = get();
+    if (!grid || !currentOffice || !country) return;
     grid.tickWeek();
     const newAbsoluteWeek = absoluteWeek + 1;
     const weeksIntoTerm = newAbsoluteWeek - currentOffice.startedWeek;
@@ -483,10 +529,72 @@ export const useGameStore = create<GameState>((set, get) => ({
     } else if (nextProfile.corruptionScore <= 50) {
       nextProfile.careerStats.highCorruptionStreakWeeks = 0;
     }
+
+    // World layer tick (Sec 10/14/18/11) — evolves in the background regardless of tier;
+    // only direct player *actions* are gated to observer/full by office tier.
+    let nextAiNations = aiNations;
+    let nextTension = tensionByNationId;
+    let nextWar = activeWar;
+    let nextWorldMods = worldStatModifiers;
+    let nextWarLegacyTags = get().warLegacyTags;
+    if (aiNations.length > 0) {
+      const billsPassedByIssue: Record<string, number> = {};
+      for (const b of bills) if (b.status === "implemented") billsPassedByIssue[b.issueId] = (billsPassedByIssue[b.issueId] ?? 0) + 1;
+      const playerStats = computePlayerNationalStats(country, grid, billsPassedByIssue, nextCabinet);
+      const finalPlayerStats: NationalPowerStats = {
+        economy: clamp(playerStats.economy + worldStatModifiers.economy),
+        military: clamp(playerStats.military + worldStatModifiers.military),
+        diplomacy: clamp(playerStats.diplomacy + worldStatModifiers.diplomacy),
+        stability: clamp(playerStats.stability + worldStatModifiers.stability),
+        innovation: clamp(playerStats.innovation + worldStatModifiers.innovation),
+      };
+
+      nextAiNations = aiNations.map((n) => ({ ...n, stats: { ...n.stats } }));
+      nextTension = { ...tensionByNationId };
+      for (const nation of nextAiNations) {
+        const current = nextTension[nation.id] ?? 15;
+        const { tensionNudge } = tickAiNation(nation, finalPlayerStats, current, rng);
+        nextTension[nation.id] = tickTension(current, get().player!.ideology, nation, tradeAgreementsByNationId[nation.id] ?? false, tensionNudge);
+      }
+
+      if (nextWar) {
+        const nation = nextAiNations.find((n) => n.id === nextWar!.nationId);
+        if (nation) {
+          const frontDelta = resolveWarTurn(finalPlayerStats, nation.stats, nextWar, grid.aggregateApproval(), rng);
+          nextWar = { ...nextWar, front: clamp(nextWar.front + frontDelta, 0, 100), turns: nextWar.turns + 1, casualties: nextWar.casualties + (nextWar.goalScope === "total" ? 220 : 90) };
+          applyWarDomesticImpact(grid, frontDelta, nextWar.goalScope);
+          pushEvent(nextProfile, newAbsoluteWeek, "scandal", `War turn vs ${nation.name}: front ${frontDelta >= 0 ? "+" : ""}${frontDelta.toFixed(1)}.`);
+
+          const resolution = checkWarResolution(nextWar);
+          if (resolution !== "ongoing") {
+            const { tag, economyDelta } = negotiateSettlement(nextWar, nextWar.nationId);
+            nextWorldMods = { ...worldStatModifiers, economy: worldStatModifiers.economy + economyDelta };
+            nextWarLegacyTags = [...nextWarLegacyTags, tag];
+            pushEvent(nextProfile, newAbsoluteWeek, "term-ended", `${tag.label}: ${tag.description}`);
+            nextTension[nextWar.nationId] = 45;
+            nextWar = null;
+          }
+        } else {
+          nextWar = null;
+        }
+      }
+    }
+
     const newTraits = evaluateNewTraits(nextProfile);
     pushEarnedTraitEvents(nextProfile, newAbsoluteWeek, newTraits);
 
-    set({ absoluteWeek: newAbsoluteWeek, gridVersion: get().gridVersion + 1, session, cabinet: nextCabinet, profile: nextProfile });
+    set({
+      absoluteWeek: newAbsoluteWeek,
+      gridVersion: get().gridVersion + 1,
+      session,
+      cabinet: nextCabinet,
+      profile: nextProfile,
+      aiNations: nextAiNations,
+      tensionByNationId: nextTension,
+      activeWar: nextWar,
+      worldStatModifiers: nextWorldMods,
+      warLegacyTags: nextWarLegacyTags,
+    });
   },
 
   proposeBill: (title, issueId, intensity, ideology, targetRegionId) => {
@@ -750,6 +858,99 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ cabinet: cabinet.map((a) => (a.id === id ? { ...a, lastConsultedWeek: absoluteWeek, loyalty: Math.min(100, a.loyalty + 5) } : a)) });
   },
 
+  getPlayerNationalStats: () => {
+    const { country, grid, bills, cabinet, worldStatModifiers } = get();
+    if (!country || !grid) return defaultWorldStatModifiers();
+    const billsPassedByIssue: Record<string, number> = {};
+    for (const b of bills) if (b.status === "implemented") billsPassedByIssue[b.issueId] = (billsPassedByIssue[b.issueId] ?? 0) + 1;
+    const base = computePlayerNationalStats(country, grid, billsPassedByIssue, cabinet);
+    return {
+      economy: clamp(base.economy + worldStatModifiers.economy),
+      military: clamp(base.military + worldStatModifiers.military),
+      diplomacy: clamp(base.diplomacy + worldStatModifiers.diplomacy),
+      stability: clamp(base.stability + worldStatModifiers.stability),
+      innovation: clamp(base.innovation + worldStatModifiers.innovation),
+    };
+  },
+
+  applyDiplomaticAction: (nationId, actionType) => {
+    const { currentOffice, aiNations, tensionByNationId, tradeAgreementsByNationId, worldStatModifiers, profile, absoluteWeek } = get();
+    if (!currentOffice || currentOffice.tier < 4) return; // observer tier can view, not act
+    const def = DIPLOMATIC_ACTIONS.find((d) => d.type === actionType);
+    const nation = aiNations.find((n) => n.id === nationId);
+    if (!def || !nation) return;
+    const currentTension = tensionByNationId[nationId] ?? 15;
+    const stage = stageForTension(currentTension);
+    const stageOrder = ["stable", "strained", "confrontational", "crisis", "brink"];
+    if (stageOrder.indexOf(stage) < stageOrder.indexOf(def.minStage) || stageOrder.indexOf(stage) > stageOrder.indexOf(def.maxStage)) return;
+
+    const nextTension = { ...tensionByNationId, [nationId]: clamp(currentTension + def.tensionDelta, 0, 100) };
+    const nextTradeAgreements = { ...tradeAgreementsByNationId };
+    if (actionType === "propose-trade" || actionType === "form-alliance") nextTradeAgreements[nationId] = true;
+    if (actionType === "impose-sanctions") nextTradeAgreements[nationId] = false;
+
+    const nextWorldMods = {
+      ...worldStatModifiers,
+      economy: worldStatModifiers.economy + def.playerEconomyDelta,
+      diplomacy: worldStatModifiers.diplomacy + def.playerDiplomacyDelta,
+    };
+    const nextNations = aiNations.map((n) => (n.id === nationId ? { ...n, stats: { ...n.stats, economy: clamp(n.stats.economy + def.nationEconomyDelta) } } : n));
+
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "candidacy-announced", `${def.label} with ${nation.name}.`);
+
+    set({ tensionByNationId: nextTension, tradeAgreementsByNationId: nextTradeAgreements, worldStatModifiers: nextWorldMods, aiNations: nextNations, profile: nextProfile });
+  },
+
+  declareWar: (nationId, goalScope) => {
+    const { currentOffice, aiNations, tensionByNationId, activeWar, absoluteWeek, profile } = get();
+    if (!currentOffice || currentOffice.tier < 4 || activeWar) return;
+    const nation = aiNations.find((n) => n.id === nationId);
+    if (!nation) return;
+    const stage = stageForTension(tensionByNationId[nationId] ?? 0);
+    if (stage !== "brink") return;
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "scandal", `Declared ${goalScope} war on ${nation.name}.`);
+    set({ activeWar: initWar(nationId, absoluteWeek, goalScope), profile: nextProfile });
+  },
+
+  fundWar: () => {
+    const { activeWar, legislature, session, cabinet, absoluteWeek, profile } = get();
+    if (!activeWar || !legislature || activeWar.fundingActive) return false;
+    const activeSession = session ?? sessionForWeek(0);
+    if (activeSession.billsProposedThisSession >= SESSION_BILL_CAPACITY) return false;
+
+    const playerParty = legislature.factions.find((f) => f.isPlayerParty);
+    const whipBonus = computeCabinetEffects(cabinet).whipBonus;
+    const successChance = 0.5 + ((playerParty?.seatShare ?? 0.3) - 0.5) * 0.6 + whipBonus;
+    const rng = new Rng(`${get().seed}-warfunding-${absoluteWeek}`);
+    const passed = rng.chance(Math.max(0.05, Math.min(0.95, successChance)));
+
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, passed ? "bill-passed" : "bill-failed", passed ? "War funding bill passed." : "War funding bill failed.");
+    set({
+      activeWar: passed ? { ...activeWar, fundingActive: true } : activeWar,
+      session: { ...activeSession, billsProposedThisSession: activeSession.billsProposedThisSession + 1 },
+      profile: nextProfile,
+    });
+    return passed;
+  },
+
+  sueForPeace: () => {
+    const { activeWar, absoluteWeek, profile, worldStatModifiers, warLegacyTags, tensionByNationId } = get();
+    if (!activeWar) return;
+    const { tag, economyDelta } = negotiateSettlement(activeWar, activeWar.nationId);
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "term-ended", `Sued for peace. ${tag.label}: ${tag.description}`);
+    set({
+      activeWar: null,
+      worldStatModifiers: { ...worldStatModifiers, economy: worldStatModifiers.economy + economyDelta },
+      warLegacyTags: [...warLegacyTags, tag],
+      tensionByNationId: { ...tensionByNationId, [activeWar.nationId]: 45 },
+      profile: nextProfile,
+    });
+  },
+
   resetGame: () =>
     set({
       phase: "character-creation",
@@ -772,6 +973,12 @@ export const useGameStore = create<GameState>((set, get) => ({
       cabinet: [],
       profile: freshProfile(),
       pollTier: "low",
+      aiNations: [],
+      tensionByNationId: {},
+      tradeAgreementsByNationId: {},
+      worldStatModifiers: defaultWorldStatModifiers(),
+      activeWar: null,
+      warLegacyTags: [],
     }),
 }));
 
