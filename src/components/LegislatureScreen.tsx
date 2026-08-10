@@ -23,6 +23,8 @@ export function LegislatureScreen() {
   const callVote = useGameStore((s) => s.callVote);
   const session = useGameStore((s) => s.session);
   const cabinet = useGameStore((s) => s.cabinet);
+  const decreePower = useGameStore((s) => s.decreePower);
+  const enactByDecree = useGameStore((s) => s.enactByDecree);
 
   const [title, setTitle] = useState("");
   const [issueId, setIssueId] = useState(ISSUE_CATALOG[0].id);
@@ -187,6 +189,11 @@ export function LegislatureScreen() {
 
               <div className="row" style={{ marginTop: 12 }}>
                 <button className="btn btn-primary" onClick={() => callVote(activeBill.id)}>Call the vote</button>
+                {decreePower > 0 && (
+                  <button className="btn btn-danger" title="Skips the vote entirely — emergency-powers decree" onClick={() => enactByDecree(activeBill.id)}>
+                    Enact by decree ({decreePower})
+                  </button>
+                )}
                 <button className="btn btn-ghost" onClick={() => setActiveBill(null)}>Dismiss</button>
               </div>
             </div>

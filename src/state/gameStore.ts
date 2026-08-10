@@ -36,6 +36,10 @@ import { tickTension, stageForTension } from "../systems/tensionSystem";
 import { DIPLOMATIC_ACTIONS } from "../systems/diplomacySystem";
 import { resolveWarTurn, applyWarDomesticImpact, checkWarResolution, negotiateSettlement, initWar } from "../systems/warSystem";
 import type { AiNation, NationalPowerStats, WarState, WarLegacyTag, WarGoalScope } from "../types/world";
+import { AUTHORITARIAN_ACTIONS, OFF_RAMPS, ratchetedCost, availableActions } from "../systems/authoritarianSystem";
+import type { TriggerState } from "../systems/authoritarianSystem";
+import { militaryLoyaltyBaseline, computeCoupProbability, weeklyCoupChance, resolveCoupAttempt } from "../systems/coupSystem";
+import type { AuthoritarianActionId, OffRampActionId, PendingCoupEvent, CoupChoice, CareerEndingReason } from "../types/authoritarian";
 import { Rng } from "../systems/rng";
 
 export type Phase =
@@ -103,6 +107,21 @@ interface GameState {
   activeWar: WarState | null;
   warLegacyTags: WarLegacyTag[];
 
+  // Authoritarian Drift / Coup (Sec 12/13) — live from character creation, career-long
+  institutionalStrength: number;
+  militaryLoyalty: number;
+  oppositionStrength: number; // backlash risk from the ratchet effect
+  authoritarianActionsTaken: number;
+  termLimitRemoved: Record<string, boolean>;
+  electionPostponedWeeks: number;
+  decreePower: number;
+  censorshipActive: boolean;
+  gerrymanderActive: boolean;
+  nextCampaignDisqualifyOpponent: boolean;
+  commandDecentralized: boolean;
+  pendingCoupEvent: PendingCoupEvent | null;
+  endingReason: CareerEndingReason | null;
+
   // actions
   createCharacter: (input: CharacterCreationInput) => void;
   announceCandidacy: (officeId: string) => void;
@@ -129,6 +148,15 @@ interface GameState {
   declareWar: (nationId: string, goalScope: WarGoalScope) => void;
   fundWar: () => boolean;
   sueForPeace: () => void;
+  getTriggerState: () => TriggerState;
+  getCoupProbability: () => number;
+  takeAuthoritarianAction: (id: AuthoritarianActionId) => void;
+  takeOffRamp: (id: OffRampActionId) => void;
+  purgeOfficerCorps: () => void;
+  increaseMilitaryBudget: () => void;
+  decentralizeCommand: () => void;
+  enactByDecree: (billId: string) => void;
+  resolveCoup: (choice: CoupChoice) => void;
   endTerm: (choice: "run-again" | "run-next-tier" | "retire") => void;
   resetGame: () => void;
 }
@@ -252,6 +280,19 @@ export const useGameStore = create<GameState>((set, get) => ({
   worldStatModifiers: defaultWorldStatModifiers(),
   activeWar: null,
   warLegacyTags: [],
+  institutionalStrength: 0,
+  militaryLoyalty: 0,
+  oppositionStrength: 0,
+  authoritarianActionsTaken: 0,
+  termLimitRemoved: {},
+  electionPostponedWeeks: 0,
+  decreePower: 0,
+  censorshipActive: false,
+  gerrymanderActive: false,
+  nextCampaignDisqualifyOpponent: false,
+  commandDecentralized: false,
+  pendingCoupEvent: null,
+  endingReason: null,
 
   createCharacter: (input) => {
     const country = countryById(input.countryId);
@@ -305,6 +346,19 @@ export const useGameStore = create<GameState>((set, get) => ({
       worldStatModifiers: defaultWorldStatModifiers(),
       activeWar: null,
       warLegacyTags: [],
+      institutionalStrength: country.baselineInstitutionalStrength,
+      militaryLoyalty: militaryLoyaltyBaseline(country, backstory.statModifiers.militaryLoyaltySeed ?? 0),
+      oppositionStrength: 0,
+      authoritarianActionsTaken: 0,
+      termLimitRemoved: {},
+      electionPostponedWeeks: 0,
+      decreePower: 0,
+      censorshipActive: false,
+      gerrymanderActive: false,
+      nextCampaignDisqualifyOpponent: false,
+      commandDecentralized: false,
+      pendingCoupEvent: null,
+      endingReason: null,
     });
   },
 
@@ -315,7 +369,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (!office) return;
     const scopeRegionIds = scopeForOffice(country, office, player.homeRegionId);
     const isReelection = get().currentOffice?.officeId === officeId;
-    const opponents = generateOpponents(country, office, `${seed}-w${absoluteWeek}`, country.electoralSystem === "run-off" ? 3 : 2);
+    let opponents = generateOpponents(country, office, `${seed}-w${absoluteWeek}`, country.electoralSystem === "run-off" ? 3 : 2);
 
     // Sec 14 stretch: a disaffected "climber" from the outgoing legislature can arrive as a
     // named, better-known challenger instead of a fully generic one.
@@ -331,18 +385,39 @@ export const useGameStore = create<GameState>((set, get) => ({
       challengerNote = `${challenger.name}, once a rising voice in your own chamber, is now challenging you for ${office.title}.`;
     }
 
+    // Authoritarian-drift consequences primed for this campaign (Sec 12).
+    const { gerrymanderActive, nextCampaignDisqualifyOpponent } = get();
+    let driftNote: string | null = null;
+    if (gerrymanderActive) {
+      opponents = opponents.map((o) => ({ ...o, pollingSupport: Math.max(5, o.pollingSupport - 8) }));
+      driftNote = "Gerrymandered districts favor your candidacy this cycle.";
+    }
+    if (nextCampaignDisqualifyOpponent && opponents.length > 1) {
+      const strongest = opponents.reduce((a, b) => (b.pollingSupport > a.pollingSupport ? b : a));
+      opponents = opponents.filter((o) => o.id !== strongest.id);
+      driftNote = `${strongest.name} was disqualified from the race before it began.`;
+    }
+
     const donorGoodwillBonus = Math.max(-6000, Math.min(15000, profile.donorGoodwill * 350));
     const campaign = initCampaignState(office, country, scopeRegionIds, opponents, player, isReelection, donorGoodwillBonus);
 
     const nextProfile = { ...profile, careerStats: { ...profile.careerStats, oppoResearchUsedThisCampaign: 0 } };
     pushEvent(nextProfile, absoluteWeek, "candidacy-announced", `Announced candidacy for ${office.title}.`);
     if (challengerNote) pushEvent(nextProfile, absoluteWeek, "candidacy-announced", challengerNote);
+    if (driftNote) pushEvent(nextProfile, absoluteWeek, "scandal", driftNote);
     nextProfile.relationships = [
       ...nextProfile.relationships.filter((r) => r.role !== "rival"),
       ...opponents.map((o) => ({ id: o.id, name: o.name, role: "rival" as const, score: 0, historyLog: [`Running against you for ${office.title}.`] })),
     ];
 
-    set({ phase: "campaigning", campaign, profile: nextProfile, lastElectionResult: null });
+    set({
+      phase: "campaigning",
+      campaign,
+      profile: nextProfile,
+      lastElectionResult: null,
+      gerrymanderActive: false,
+      nextCampaignDisqualifyOpponent: false,
+    });
   },
 
   runAction: (actionType, target) => {
@@ -478,11 +553,11 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   answerEvent: (choice) => {
-    const { campaign, grid, absoluteWeek, cabinet } = get();
+    const { campaign, grid, absoluteWeek, cabinet, censorshipActive } = get();
     if (!campaign || !grid) return;
     const eventType = campaign.pendingEvent?.type;
     const outcome = resolveEventSystem(campaign, grid, choice);
-    const dampening = 1 - computeCabinetEffects(cabinet).scandalDampening;
+    const dampening = (1 - computeCabinetEffects(cabinet).scandalDampening) * (censorshipActive ? 0.6 : 1);
     const profile = { ...get().profile, careerStats: { ...get().profile.careerStats } };
     profile.authenticity = clamp(profile.authenticity + outcome.authenticityDelta * (outcome.authenticityDelta < 0 ? dampening : 1));
     profile.corruptionScore = clamp(profile.corruptionScore + outcome.corruptionDelta);
@@ -583,6 +658,41 @@ export const useGameStore = create<GameState>((set, get) => ({
     const newTraits = evaluateNewTraits(nextProfile);
     pushEarnedTraitEvents(nextProfile, newAbsoluteWeek, newTraits);
 
+    // Authoritarian Drift / Coup tick (Sec 12/13) — Military Loyalty drifts toward what the
+    // Defense/Interior cabinet (Sec 16) actually earns; the Coup Probability gauge is
+    // recomputed every week and can trigger an attempt.
+    const { institutionalStrength, militaryLoyalty, oppositionStrength, legislature: currentLegislature, commandDecentralized, pendingCoupEvent } = get();
+    const defenseAppointees = nextCabinet.filter((a) => a.portfolioId === "defense-interior");
+    const avgDefenseStrength = defenseAppointees.length
+      ? defenseAppointees.reduce((s, a) => s + (a.competence / 100) * (a.loyalty / 100), 0) / defenseAppointees.length
+      : 0.4;
+    const loyaltyTarget = clamp(militaryLoyaltyBaseline(country, 0) + avgDefenseStrength * 30 - oppositionStrength * 0.15 - (commandDecentralized ? 5 : 0));
+    const nextMilitaryLoyalty = clamp(militaryLoyalty + (loyaltyTarget - militaryLoyalty) * 0.06 + rng.range(-1, 1));
+    const nextOppositionStrength = clamp(oppositionStrength * 0.97, 0, 100);
+
+    const playerParty = currentLegislature?.factions.find((f) => f.isPlayerParty);
+    const avgCabinetLoyalty = nextCabinet.length ? nextCabinet.reduce((s, a) => s + a.loyalty, 0) / nextCabinet.length : 50;
+    const eliteApproval = clamp((playerParty?.seatShare ?? 0.3) * 100 * 0.5 + avgCabinetLoyalty * 0.5);
+    const economicCrisisSeverity = 100 - (nextAiNations.length > 0 ? computePlayerNationalStats(country, grid, {}, nextCabinet).economy : grid.aggregateApproval());
+    const externalEncouragement = nextAiNations.length
+      ? Math.max(...nextAiNations.map((n) => (nextTension[n.id] ?? 0) * (n.archetype === "warhawk" ? 0.4 : 0.1)))
+      : 0;
+
+    const coupProbability = computeCoupProbability({
+      militaryLoyalty: nextMilitaryLoyalty,
+      institutionalStrength,
+      eliteApproval,
+      economicCrisisSeverity,
+      recentAuthoritarianSpike: oppositionStrength,
+      externalEncouragement,
+    });
+
+    let nextPendingCoup = pendingCoupEvent;
+    if (!nextPendingCoup && rng.chance(weeklyCoupChance(coupProbability, country))) {
+      nextPendingCoup = { week: newAbsoluteWeek, loyalFraction: clamp(nextMilitaryLoyalty / 100 + rng.range(-0.1, 0.1), 0, 1) };
+      pushEvent(nextProfile, newAbsoluteWeek, "scandal", "Intelligence warns of movement among the officer corps.");
+    }
+
     set({
       absoluteWeek: newAbsoluteWeek,
       gridVersion: get().gridVersion + 1,
@@ -594,6 +704,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       activeWar: nextWar,
       worldStatModifiers: nextWorldMods,
       warLegacyTags: nextWarLegacyTags,
+      militaryLoyalty: nextMilitaryLoyalty,
+      oppositionStrength: nextOppositionStrength,
+      pendingCoupEvent: nextPendingCoup,
     });
   },
 
@@ -741,10 +854,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   breakPromise: (id) => {
-    const { profile, absoluteWeek, cabinet } = get();
+    const { profile, absoluteWeek, cabinet, censorshipActive } = get();
     const promise = profile.promiseLedger.find((p) => p.id === id);
     if (!promise || promise.status !== "pending") return;
-    const dampening = 1 - computeCabinetEffects(cabinet).scandalDampening;
+    const dampening = (1 - computeCabinetEffects(cabinet).scandalDampening) * (censorshipActive ? 0.6 : 1);
     const nextProfile = { ...profile };
     nextProfile.promiseLedger = profile.promiseLedger.map((p) => (p.id === id ? { ...p, status: "broken" as const } : p));
     nextProfile.authenticity = clamp(nextProfile.authenticity - 10 * dampening);
@@ -755,7 +868,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   endTerm: (choice) => {
-    const { currentOffice, officeHistory, country, absoluteWeek, profile, termsServedByOffice } = get();
+    const { currentOffice, officeHistory, country, absoluteWeek, profile, termsServedByOffice, institutionalStrength } = get();
     if (!currentOffice || !country) return;
     const nextProfile = { ...profile };
     pushEvent(nextProfile, absoluteWeek, "term-ended", `Term as ${currentOffice.title} ended.`);
@@ -770,9 +883,24 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (nextProfile.corruptionScore < 10) {
       if (awardTrait(nextProfile, "clean-hands")) pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("clean-hands")?.name}.`);
     }
+    if (institutionalStrength < 25) {
+      if (awardTrait(nextProfile, "iron-fist")) pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("iron-fist")?.name}.`);
+    }
 
     if (choice === "retire") {
-      set({ phase: "career-ended", officeHistory: history, currentOffice: null, profile: nextProfile, termsServedByOffice: nextTermsServed, session: null, cabinet: [] });
+      if (institutionalStrength >= 60) {
+        if (awardTrait(nextProfile, "peaceful-transition")) pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("peaceful-transition")?.name}.`);
+      }
+      set({
+        phase: "career-ended",
+        endingReason: "retired",
+        officeHistory: history,
+        currentOffice: null,
+        profile: nextProfile,
+        termsServedByOffice: nextTermsServed,
+        session: null,
+        cabinet: [],
+      });
       return;
     }
 
@@ -951,6 +1079,203 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
+  getTriggerState: () => {
+    const { activeWar, grid, legislature, currentOffice, country, termsServedByOffice, termLimitRemoved, profile } = get();
+    const officeRung = country && currentOffice ? country.officeLadder.find((o) => o.id === currentOffice.officeId) : undefined;
+    const playerParty = legislature?.factions.find((f) => f.isPlayerParty);
+    const termsServed = currentOffice ? termsServedByOffice[currentOffice.officeId] ?? 0 : 0;
+    return {
+      atWar: !!activeWar,
+      lowApproval: grid ? grid.aggregateApproval() < 40 : false,
+      losingLegislativeControl: (playerParty?.seatShare ?? 1) < 0.4,
+      approachingTermLimit: !!(
+        officeRung &&
+        officeRung.termLimit !== null &&
+        currentOffice &&
+        !termLimitRemoved[currentOffice.officeId] &&
+        termsServed >= officeRung.termLimit - 1
+      ),
+      scandalThreat: profile.corruptionScore > 50,
+    };
+  },
+
+  getCoupProbability: () => {
+    const { institutionalStrength, militaryLoyalty, oppositionStrength, legislature, cabinet, grid, aiNations, tensionByNationId, country, worldStatModifiers, bills } = get();
+    if (!grid || !country) return 0;
+    const playerParty = legislature?.factions.find((f) => f.isPlayerParty);
+    const avgCabinetLoyalty = cabinet.length ? cabinet.reduce((s, a) => s + a.loyalty, 0) / cabinet.length : 50;
+    const eliteApproval = clamp((playerParty?.seatShare ?? 0.3) * 100 * 0.5 + avgCabinetLoyalty * 0.5);
+    const billsPassedByIssue: Record<string, number> = {};
+    for (const b of bills) if (b.status === "implemented") billsPassedByIssue[b.issueId] = (billsPassedByIssue[b.issueId] ?? 0) + 1;
+    const economicCrisisSeverity = 100 - (aiNations.length > 0 ? computePlayerNationalStats(country, grid, billsPassedByIssue, cabinet).economy + worldStatModifiers.economy : grid.aggregateApproval());
+    const externalEncouragement = aiNations.length ? Math.max(...aiNations.map((n) => (tensionByNationId[n.id] ?? 0) * (n.archetype === "warhawk" ? 0.4 : 0.1))) : 0;
+    return computeCoupProbability({
+      militaryLoyalty,
+      institutionalStrength,
+      eliteApproval,
+      economicCrisisSeverity: clamp(economicCrisisSeverity),
+      recentAuthoritarianSpike: oppositionStrength,
+      externalEncouragement,
+    });
+  },
+
+  takeAuthoritarianAction: (id) => {
+    const { institutionalStrength, authoritarianActionsTaken, absoluteWeek, profile, currentOffice, legislature } = get();
+    const def = AUTHORITARIAN_ACTIONS.find((a) => a.id === id);
+    if (!def || !currentOffice) return;
+    const state = get().getTriggerState();
+    if (!availableActions(state).some((a) => a.id === id)) return;
+    const cost = ratchetedCost(def.baseInstitutionalStrengthCost, authoritarianActionsTaken);
+    if (institutionalStrength < cost) return;
+
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "scandal", `${def.label}. (-${cost} Institutional Strength)`);
+
+    const patch: Partial<GameState> = {
+      institutionalStrength: clamp(institutionalStrength - cost),
+      authoritarianActionsTaken: authoritarianActionsTaken + 1,
+      oppositionStrength: clamp(get().oppositionStrength + (id === "prosecute-rival" ? 15 : 8)),
+      profile: nextProfile,
+    };
+
+    if (id === "emergency-powers") patch.decreePower = get().decreePower + 1;
+    if (id === "press-censorship") {
+      patch.censorshipActive = true;
+      nextProfile.corruptionScore = clamp(nextProfile.corruptionScore + 5);
+    }
+    if (id === "postpone-election") patch.electionPostponedWeeks = get().electionPostponedWeeks + 26;
+    if (id === "court-packing" && legislature) {
+      const others = legislature.factions.filter((f) => !f.isPlayerParty);
+      const totalOtherShare = others.reduce((s, f) => s + f.seatShare, 0) || 1;
+      patch.legislature = {
+        ...legislature,
+        factions: legislature.factions.map((f) =>
+          f.isPlayerParty ? { ...f, seatShare: Math.min(0.9, f.seatShare + 0.1) } : { ...f, seatShare: f.seatShare * (1 - 0.1 / totalOtherShare) }
+        ),
+      };
+    }
+    if (id === "gerrymander") patch.gerrymanderActive = true;
+    if (id === "disqualify-opponent") patch.nextCampaignDisqualifyOpponent = true;
+    if (id === "remove-term-limit") patch.termLimitRemoved = { ...get().termLimitRemoved, [currentOffice.officeId]: true };
+    if (id === "prosecute-rival") {
+      const rival = nextProfile.relationships.find((r) => r.role === "rival");
+      if (rival) {
+        nextProfile.relationships = nextProfile.relationships.map((r) =>
+          r.id === rival.id ? { ...r, score: Math.max(-100, r.score - 30), historyLog: [...r.historyLog, "Prosecuted by the administration."] } : r
+        );
+      }
+    }
+
+    set(patch);
+  },
+
+  takeOffRamp: (id) => {
+    const { institutionalStrength, oppositionStrength, absoluteWeek, profile } = get();
+    const def = OFF_RAMPS.find((o) => o.id === id);
+    if (!def) return;
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "term-ended", `${def.label}. (+${def.institutionalStrengthGain} Institutional Strength)`);
+    const patch: Partial<GameState> = {
+      institutionalStrength: clamp(institutionalStrength + def.institutionalStrengthGain),
+      oppositionStrength: clamp(oppositionStrength - 10),
+      profile: nextProfile,
+    };
+    if (id === "restore-press-freedom") patch.censorshipActive = false;
+    if (id === "hold-postponed-election") patch.electionPostponedWeeks = 0;
+
+    // A real reversal of significant drift, not just topping off a healthy IS score.
+    const wasDrifted = institutionalStrength < 55;
+    const nowRecovered = institutionalStrength + def.institutionalStrengthGain >= 60;
+    if (wasDrifted && nowRecovered && awardTrait(nextProfile, "restored-the-republic")) {
+      pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("restored-the-republic")?.name}.`);
+    }
+    set(patch);
+  },
+
+  purgeOfficerCorps: () => {
+    const { institutionalStrength, militaryLoyalty, absoluteWeek, profile, seed } = get();
+    if (institutionalStrength < 10) return;
+    const rng = new Rng(`${seed}-purge-${absoluteWeek}`);
+    const nextProfile = { ...profile };
+    const backfires = rng.chance(0.15);
+    pushEvent(nextProfile, absoluteWeek, "scandal", backfires ? "A loyalty purge went badly — the officer corps is rattled." : "Purged suspect officers. Loyalty firmed up.");
+    set({
+      institutionalStrength: clamp(institutionalStrength - 10),
+      militaryLoyalty: clamp(militaryLoyalty + (backfires ? -5 : 15)),
+      pendingCoupEvent: backfires ? { week: absoluteWeek, loyalFraction: clamp(militaryLoyalty / 100 - 0.15, 0, 1) } : get().pendingCoupEvent,
+      profile: nextProfile,
+    });
+  },
+
+  increaseMilitaryBudget: () => {
+    const { militaryLoyalty, worldStatModifiers, absoluteWeek, profile } = get();
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "term-ended", "Increased the military budget to buy loyalty.");
+    set({
+      militaryLoyalty: clamp(militaryLoyalty + 10),
+      worldStatModifiers: { ...worldStatModifiers, economy: worldStatModifiers.economy - 5 },
+      profile: nextProfile,
+    });
+  },
+
+  decentralizeCommand: () => {
+    const { militaryLoyalty, absoluteWeek, profile } = get();
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "term-ended", "Decentralized military command — reduces any future coup's effectiveness.");
+    set({ commandDecentralized: true, militaryLoyalty: clamp(militaryLoyalty - 3), profile: nextProfile });
+  },
+
+  enactByDecree: (billId) => {
+    const { bills, decreePower, grid, absoluteWeek, profile, cabinet } = get();
+    if (decreePower <= 0 || !grid) return;
+    const bill = bills.find((b) => b.id === billId);
+    if (!bill) return;
+    applyBillPassage(bill, grid, computeCabinetEffects(cabinet).issueIntensityBoost[bill.issueId] ?? 0);
+    const nextProfile = { ...profile };
+    pushEvent(nextProfile, absoluteWeek, "bill-passed", `${bill.title} enacted by decree — no vote taken.`);
+    set({
+      bills: bills.map((b) => (b.id === billId ? bill : b)),
+      decreePower: decreePower - 1,
+      gridVersion: get().gridVersion + 1,
+      profile: nextProfile,
+      activeBillId: null,
+    });
+  },
+
+  resolveCoup: (choice) => {
+    const { pendingCoupEvent, absoluteWeek, profile, grid, seed, institutionalStrength, militaryLoyalty, officeHistory, currentOffice } = get();
+    if (!pendingCoupEvent || !grid || !currentOffice) return;
+    const rng = new Rng(`${seed}-coup-${absoluteWeek}`);
+    const outcome = resolveCoupAttempt(pendingCoupEvent.loyalFraction, grid.aggregateApproval(), choice, rng);
+    const nextProfile = { ...profile };
+
+    if (outcome === "fails") {
+      for (const cell of grid.grid.cells) grid.adjustPersuasion(cell.regionId, cell.segmentId, 8);
+      const awarded = awardTrait(nextProfile, "survived-coup-attempt");
+      if (awarded) pushEvent(nextProfile, absoluteWeek, "trait-earned", `Earned trait: ${getTrait("survived-coup-attempt")?.name}.`);
+      pushEvent(nextProfile, absoluteWeek, "scandal", "The coup attempt collapsed. You remain in office.");
+      set({
+        pendingCoupEvent: null,
+        gridVersion: get().gridVersion + 1,
+        militaryLoyalty: clamp(militaryLoyalty + 15),
+        institutionalStrength: clamp(institutionalStrength + 5),
+        profile: nextProfile,
+      });
+      return;
+    }
+
+    const endingReason: CareerEndingReason = outcome === "exile" ? "exiled" : "imprisoned";
+    pushEvent(nextProfile, absoluteWeek, "term-ended", outcome === "exile" ? "The coup succeeded. Forced into exile." : "The coup succeeded. Prosecuted by the new regime.");
+    set({
+      pendingCoupEvent: null,
+      phase: "career-ended",
+      endingReason,
+      officeHistory: currentOffice ? [...officeHistory, currentOffice] : officeHistory,
+      currentOffice: null,
+      profile: nextProfile,
+    });
+  },
+
   resetGame: () =>
     set({
       phase: "character-creation",
@@ -979,6 +1304,19 @@ export const useGameStore = create<GameState>((set, get) => ({
       worldStatModifiers: defaultWorldStatModifiers(),
       activeWar: null,
       warLegacyTags: [],
+      institutionalStrength: 0,
+      militaryLoyalty: 0,
+      oppositionStrength: 0,
+      authoritarianActionsTaken: 0,
+      termLimitRemoved: {},
+      electionPostponedWeeks: 0,
+      decreePower: 0,
+      censorshipActive: false,
+      gerrymanderActive: false,
+      nextCampaignDisqualifyOpponent: false,
+      commandDecentralized: false,
+      pendingCoupEvent: null,
+      endingReason: null,
     }),
 }));
 

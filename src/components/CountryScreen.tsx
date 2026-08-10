@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useGameStore, SESSION_LENGTH_WEEKS, SESSION_BILL_CAPACITY } from "../state/gameStore";
 import { portfolioSlotsForTier, PORTFOLIO_EFFECT_DESCRIPTIONS } from "../data/portfolios";
+import { OFF_RAMPS, availableActions, ratchetedCost } from "../systems/authoritarianSystem";
 import type { AppointeeCandidate } from "../types/cabinet";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -19,6 +20,8 @@ export function CountryScreen() {
   const absoluteWeek = useGameStore((s) => s.absoluteWeek);
   const session = useGameStore((s) => s.session);
   const termsServedByOffice = useGameStore((s) => s.termsServedByOffice);
+  const termLimitRemoved = useGameStore((s) => s.termLimitRemoved);
+  const electionPostponedWeeks = useGameStore((s) => s.electionPostponedWeeks);
   const bills = useGameStore((s) => s.bills);
   const endTerm = useGameStore((s) => s.endTerm);
   const advanceServingWeek = useGameStore((s) => s.advanceServingWeek);
@@ -38,13 +41,13 @@ export function CountryScreen() {
   const idx = country.officeLadder.findIndex((o) => o.id === currentOffice.officeId);
   const nextOffice = country.officeLadder[idx + 1];
 
-  const termWeeks = officeRung.termLength * 52;
+  const termWeeks = officeRung.termLength * 52 + electionPostponedWeeks;
   const weeksIntoTerm = absoluteWeek - currentOffice.startedWeek;
   const termExpired = weeksIntoTerm >= termWeeks;
   const termProgressPct = Math.min(100, Math.round((weeksIntoTerm / termWeeks) * 100));
 
   const termsServed = termsServedByOffice[currentOffice.officeId] ?? 0;
-  const reelectionBlocked = officeRung.termLimit !== null && termsServed >= officeRung.termLimit;
+  const reelectionBlocked = officeRung.termLimit !== null && termsServed >= officeRung.termLimit && !termLimitRemoved[currentOffice.officeId];
 
   const showChooser = confirmingEnd || termExpired;
 
@@ -53,6 +56,7 @@ export function CountryScreen() {
       <h1>{country.name}</h1>
       <p className="muted">
         {currentOffice.title} · {country.systemType.replace(/-/g, " ")} · {country.structure}
+        {electionPostponedWeeks > 0 && <span className="badge badge-danger" style={{ marginLeft: 8 }}>election postponed</span>}
       </p>
 
       <div className="grid-2">
@@ -76,17 +80,7 @@ export function CountryScreen() {
             </div>
           </div>
 
-          <div className="card">
-            <h3>Institutional baselines</h3>
-            <div className="grid-3">
-              <StatTile label="Institutional Strength" value={String(country.baselineInstitutionalStrength)} />
-              <StatTile label="Coup Risk Ceiling" value={country.baselineCoupRiskCeiling} />
-              <StatTile label="Party Discipline" value={country.partyDiscipline} />
-            </div>
-            <p className="faint" style={{ marginTop: 10 }}>
-              Authoritarian drift and coup mechanics arrive in a later phase — these are the baselines they'll run against.
-            </p>
-          </div>
+          <AuthorityCard country={country} />
         </div>
 
         <div className="stack">
@@ -161,6 +155,123 @@ export function CountryScreen() {
           <CabinetCard tier={currentOffice.tier} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function AuthorityCard({ country }: { country: NonNullable<ReturnType<typeof useGameStore.getState>["country"]> }) {
+  const institutionalStrength = useGameStore((s) => s.institutionalStrength);
+  const militaryLoyalty = useGameStore((s) => s.militaryLoyalty);
+  const oppositionStrength = useGameStore((s) => s.oppositionStrength);
+  const authoritarianActionsTaken = useGameStore((s) => s.authoritarianActionsTaken);
+  const decreePower = useGameStore((s) => s.decreePower);
+  const commandDecentralized = useGameStore((s) => s.commandDecentralized);
+  const getTriggerState = useGameStore((s) => s.getTriggerState);
+  const getCoupProbability = useGameStore((s) => s.getCoupProbability);
+  const takeAuthoritarianAction = useGameStore((s) => s.takeAuthoritarianAction);
+  const takeOffRamp = useGameStore((s) => s.takeOffRamp);
+  const purgeOfficerCorps = useGameStore((s) => s.purgeOfficerCorps);
+  const increaseMilitaryBudget = useGameStore((s) => s.increaseMilitaryBudget);
+  const decentralizeCommand = useGameStore((s) => s.decentralizeCommand);
+  const gridVersion = useGameStore((s) => s.gridVersion);
+  const absoluteWeek = useGameStore((s) => s.absoluteWeek);
+  const cabinet = useGameStore((s) => s.cabinet);
+  const legislature = useGameStore((s) => s.legislature);
+  const activeWar = useGameStore((s) => s.activeWar);
+  const aiNations = useGameStore((s) => s.aiNations);
+  const tensionByNationId = useGameStore((s) => s.tensionByNationId);
+
+  const [expanded, setExpanded] = useState(false);
+
+  // These read live store state internally (Sec 12/13 formulas) — re-derive whenever any input
+  // they depend on could have changed, not just when the memoized getter functions themselves do.
+  const triggerState = useMemo(
+    () => getTriggerState(),
+    [getTriggerState, gridVersion, absoluteWeek, legislature, activeWar, institutionalStrength]
+  );
+  const actions = useMemo(() => availableActions(triggerState), [triggerState]);
+  const coupProbability = useMemo(
+    () => getCoupProbability(),
+    [getCoupProbability, institutionalStrength, militaryLoyalty, oppositionStrength, cabinet, legislature, aiNations, tensionByNationId, gridVersion]
+  );
+
+  return (
+    <div className="card">
+      <div className="row between">
+        <h3 style={{ margin: 0 }}>Authority</h3>
+        <span className="badge">{country.baselineCoupRiskCeiling} ceiling</span>
+      </div>
+      <div className="grid-3" style={{ marginTop: 10 }}>
+        <MeterStat label="Institutional Strength" value={institutionalStrength} warnBelow={40} />
+        <MeterStat label="Military Loyalty" value={militaryLoyalty} warnBelow={40} />
+        <MeterStat label="Coup Probability" value={coupProbability} warnAbove={30} />
+      </div>
+      <p className="faint" style={{ marginTop: 6 }}>
+        Opposition/Resistance {Math.round(oppositionStrength)} · {authoritarianActionsTaken} authoritarian action{authoritarianActionsTaken === 1 ? "" : "s"} taken
+        {decreePower > 0 ? ` · ${decreePower} decree power available` : ""}
+      </p>
+
+      <button className="btn btn-ghost btn-sm" onClick={() => setExpanded((v) => !v)} style={{ marginTop: 6 }}>
+        {expanded ? "Hide" : "Show"} actions
+      </button>
+
+      {expanded && (
+        <div className="stack" style={{ marginTop: 10, gap: 14 }}>
+          <div>
+            <span className="label">Available now (contextual)</span>
+            {actions.length === 0 && <p className="faint">No triggers active — no temptations on the table right now.</p>}
+            <div className="stack" style={{ gap: 6, marginTop: 6 }}>
+              {actions.map((a) => {
+                const cost = ratchetedCost(a.baseInstitutionalStrengthCost, authoritarianActionsTaken);
+                const disabled = institutionalStrength < cost;
+                return (
+                  <div key={a.id} className="row between">
+                    <div>
+                      <strong style={{ fontSize: "0.85rem" }}>{a.label}</strong>
+                      <p className="faint" style={{ margin: "2px 0 0" }}>{a.description}</p>
+                    </div>
+                    <button className="btn btn-sm btn-danger" disabled={disabled} title={`-${cost} Institutional Strength`} onClick={() => takeAuthoritarianAction(a.id)}>
+                      -{cost} IS
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <span className="label">Off-ramps</span>
+            <div className="stack" style={{ gap: 6, marginTop: 6 }}>
+              {OFF_RAMPS.map((o) => (
+                <div key={o.id} className="row between">
+                  <div>
+                    <strong style={{ fontSize: "0.85rem" }}>{o.label}</strong>
+                    <p className="faint" style={{ margin: "2px 0 0" }}>{o.description}</p>
+                  </div>
+                  <button className="btn btn-sm" onClick={() => takeOffRamp(o.id)}>
+                    +{o.institutionalStrengthGain} IS
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className="label">Military loyalty mitigations</span>
+            <div className="row wrap" style={{ marginTop: 6 }}>
+              <button className="btn btn-sm" onClick={purgeOfficerCorps} title="Boosts loyalty, spends Institutional Strength — can backfire">
+                Purge officer corps
+              </button>
+              <button className="btn btn-sm" onClick={increaseMilitaryBudget} title="Boosts loyalty, costs economy">
+                Increase military budget
+              </button>
+              <button className="btn btn-sm" disabled={commandDecentralized} onClick={decentralizeCommand} title="Reduces any future coup's effectiveness">
+                {commandDecentralized ? "Command decentralized" : "Decentralize command"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -256,11 +367,15 @@ function CabinetCard({ tier }: { tier: 1 | 2 | 3 | 4 }) {
   );
 }
 
-function StatTile({ label, value }: { label: string; value: string }) {
+function MeterStat({ label, value, warnBelow, warnAbove }: { label: string; value: number; warnBelow?: number; warnAbove?: number }) {
+  const warn = (warnBelow !== undefined && value < warnBelow) || (warnAbove !== undefined && value > warnAbove);
   return (
     <div className="stat-tile">
       <span className="label">{label}</span>
-      <div className="value" style={{ fontSize: "1.1rem", textTransform: "capitalize" }}>{value}</div>
+      <div className="value" style={{ fontSize: "1.1rem" }}>{Math.round(value)}</div>
+      <div className={`meter ${warn ? "danger" : ""}`} style={{ marginTop: 4 }}>
+        <span style={{ width: `${Math.min(100, value)}%` }} />
+      </div>
     </div>
   );
 }

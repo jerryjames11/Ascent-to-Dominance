@@ -11,6 +11,7 @@ export function OfficeLadder() {
   const player = useGameStore((s) => s.player);
   const officeHistory = useGameStore((s) => s.officeHistory);
   const termsServedByOffice = useGameStore((s) => s.termsServedByOffice);
+  const termLimitRemoved = useGameStore((s) => s.termLimitRemoved);
   const announceCandidacy = useGameStore((s) => s.announceCandidacy);
 
   if (!country || !player) return null;
@@ -45,7 +46,7 @@ export function OfficeLadder() {
           const eligible = office.tier <= highestTierHeld + 1;
           const ageOk = player.age >= office.eligibilityRules.minAge;
           const termsServed = termsServedByOffice[office.id] ?? 0;
-          const termLimited = office.termLimit !== null && termsServed >= office.termLimit;
+          const termLimited = office.termLimit !== null && termsServed >= office.termLimit && !termLimitRemoved[office.id];
           const canRun = eligible && ageOk && !termLimited;
           const disabledReason = !eligible
             ? "Climb the ladder in order first"

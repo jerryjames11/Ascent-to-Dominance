@@ -9,6 +9,7 @@ import { CountryScreen } from "./components/CountryScreen";
 import { LegislatureScreen } from "./components/LegislatureScreen";
 import { WorldScreen } from "./components/WorldScreen";
 import { LegacyScreen } from "./components/LegacyScreen";
+import { CoupEventModal } from "./components/CoupEventModal";
 
 function ServingArea() {
   const servingTab = useGameStore((s) => s.servingTab);
@@ -21,6 +22,7 @@ function ServingArea() {
         {servingTab === "legislature" && <LegislatureScreen />}
         {servingTab === "world" && <WorldScreen />}
       </div>
+      <CoupEventModal />
     </>
   );
 }

@@ -32,6 +32,12 @@ export const TRAITS: Trait[] = [
   { id: "scandal-scarred", name: "Scandal-Scarred", description: "Survived 2+ major scandals. Reduced future severity, lower Authenticity ceiling.", category: "reputation", negative: true },
   { id: "clean-hands", name: "Clean Hands", description: "Near-zero corruption across a term. Authenticity + soft-power bonus.", category: "reputation" },
   { id: "untouchable", name: "Untouchable", description: "Sustained high corruption with no exposure. Stronger donor ties, rising catastrophic-exposure risk.", category: "reputation", negative: true },
+
+  // Authoritarian-drift / Democratic-integrity — Sec 12/13
+  { id: "survived-coup-attempt", name: "Survived a Coup Attempt", description: "A defining event. Rally-round-the-flag approval spike.", category: "authoritarian" },
+  { id: "restored-the-republic", name: "Restored the Republic", description: "Reversed significant authoritarian drift. Major Legacy-positive weight.", category: "authoritarian" },
+  { id: "iron-fist", name: "Iron Fist", description: "Institutional Strength stayed critically low through term end. Control bonus, permanent pariah penalty.", category: "authoritarian", negative: true },
+  { id: "peaceful-transition", name: "Peaceful Transition", description: "Retired or termed out with institutions intact. Core \"Statesman\" input.", category: "authoritarian" },
 ];
 
 export function getTrait(id: string): Trait | undefined {

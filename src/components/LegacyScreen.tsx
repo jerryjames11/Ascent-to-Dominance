@@ -1,22 +1,45 @@
 import { useGameStore } from "../state/gameStore";
 
+const ENDING_HEADLINE: Record<string, { headline: string; sub: string }> = {
+  retired: { headline: "a career retrospective", sub: "Retired from public life in" },
+  "term-limit-out": { headline: "termed out", sub: "Reached the end of the road, term-limited, in" },
+  exiled: { headline: "forced into exile", sub: "Overthrown and exiled from" },
+  imprisoned: { headline: "fallen", sub: "Overthrown and imprisoned in" },
+};
+
 export function LegacyScreen() {
   const player = useGameStore((s) => s.player);
   const profile = useGameStore((s) => s.profile);
   const officeHistory = useGameStore((s) => s.officeHistory);
   const country = useGameStore((s) => s.country);
   const resetGame = useGameStore((s) => s.resetGame);
+  const endingReason = useGameStore((s) => s.endingReason);
+  const institutionalStrength = useGameStore((s) => s.institutionalStrength);
 
   if (!player || !country) return null;
 
   const fulfilled = profile.promiseLedger.filter((p) => p.status === "fulfilled").length;
   const total = profile.promiseLedger.length;
   const highestTier = officeHistory.reduce((m, o) => Math.max(m, o.tier), 0);
+  const ending = ENDING_HEADLINE[endingReason ?? "retired"];
 
   return (
     <div className="center-column">
-      <h1>{player.name} — a career retrospective</h1>
-      <p className="muted">Retired from public life in {country.name}.</p>
+      <h1>
+        {player.name} — {ending.headline}
+      </h1>
+      <p className="muted">
+        {ending.sub} {country.name}.
+      </p>
+      {(endingReason === "exiled" || endingReason === "imprisoned") && (
+        <div className="card" style={{ borderColor: "var(--danger)", marginBottom: 14 }}>
+          <span className="badge badge-danger">Overthrown</span>
+          <p style={{ margin: "8px 0 0" }}>
+            Institutional Strength had fallen to {Math.round(institutionalStrength)} by the end — the drift that made this possible was
+            years in the making.
+          </p>
+        </div>
+      )}
 
       <div className="card">
         <h3>Offices held</h3>
@@ -34,7 +57,7 @@ export function LegacyScreen() {
       <div className="grid-3" style={{ marginTop: 14 }}>
         <StatTile label="Highest office tier" value={String(highestTier)} />
         <StatTile label="Promises kept" value={total ? `${fulfilled}/${total}` : "—"} />
-        <StatTile label="Authenticity" value={`${Math.round(profile.authenticity)}`} />
+        <StatTile label="Institutional Strength" value={`${Math.round(institutionalStrength)}`} />
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>
