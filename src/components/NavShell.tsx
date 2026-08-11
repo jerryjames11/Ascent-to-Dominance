@@ -1,4 +1,4 @@
-import { useGameStore, type ServingTab } from "../state/gameStore";
+import { useGameStore, type MainTab } from "../state/gameStore";
 
 export function TopBar() {
   const player = useGameStore((s) => s.player);
@@ -37,35 +37,39 @@ export function TopBar() {
   );
 }
 
-const TAB_DEFS: { id: ServingTab; label: string }[] = [
-  { id: "profile", label: "Profile" },
-  { id: "country", label: "Country" },
-  { id: "legislature", label: "Legislature" },
-  { id: "world", label: "World" },
+const TAB_DEFS: { id: MainTab; label: string; icon: string }[] = [
+  { id: "profile", label: "Profile", icon: "👤" },
+  { id: "country", label: "Country", icon: "🏛" },
+  { id: "world", label: "World", icon: "🌐" },
+  { id: "legislature", label: "Legislature", icon: "⚖" },
+  { id: "campaign", label: "Campaign", icon: "📣" },
 ];
 
-export function ServingTabs() {
-  const servingTab = useGameStore((s) => s.servingTab);
-  const setServingTab = useGameStore((s) => s.setServingTab);
+export function BottomNav() {
+  const activeTab = useGameStore((s) => s.activeTab);
+  const setActiveTab = useGameStore((s) => s.setActiveTab);
   const currentOffice = useGameStore((s) => s.currentOffice);
 
   return (
-    <div className="tabs">
+    <nav className="bottom-nav">
       {TAB_DEFS.map((t) => {
         const locked = t.id === "world" && (!currentOffice || currentOffice.tier < 3);
         return (
           <button
             key={t.id}
-            className={`tab ${servingTab === t.id ? "active" : ""}`}
+            className={`bottom-nav-item ${activeTab === t.id ? "active" : ""}`}
             disabled={locked}
-            title={locked ? "Unlocks at national office — Phase 3" : undefined}
-            onClick={() => setServingTab(t.id)}
+            title={locked ? "Unlocks at national office (Legislature or higher)" : undefined}
+            onClick={() => setActiveTab(t.id)}
           >
-            {t.label}
-            {locked ? " 🔒" : ""}
+            <span className="bottom-nav-icon">{t.icon}</span>
+            <span>
+              {t.label}
+              {locked ? " 🔒" : ""}
+            </span>
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 }

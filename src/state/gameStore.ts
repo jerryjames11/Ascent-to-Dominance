@@ -44,15 +44,12 @@ import { initPatronageState, applyPatronageAction, tickPatronageWeek, resolvePat
 import type { PatronageState, PatronageActionType } from "../types/patronage";
 import { Rng } from "../systems/rng";
 
-export type Phase =
-  | "character-creation"
-  | "office-select"
-  | "campaigning"
-  | "election-result"
-  | "serving"
-  | "career-ended";
+// "playing" covers what used to be three separate phases (office-select/campaigning/serving) —
+// the persistent bottom-nav shell now branches on real state (currentOffice/campaign/patronage)
+// instead of a coarse phase, so those don't need distinct phases anymore.
+export type Phase = "character-creation" | "playing" | "election-result" | "career-ended";
 
-export type ServingTab = "profile" | "country" | "legislature" | "world";
+export type MainTab = "profile" | "country" | "world" | "legislature" | "campaign";
 
 export interface OfficeHeld {
   officeId: string;
@@ -81,7 +78,7 @@ export const SESSION_BILL_CAPACITY = 2;
 
 interface GameState {
   phase: Phase;
-  servingTab: ServingTab;
+  activeTab: MainTab;
   seed: string;
   player: PlayerCharacter | null;
   country: CountrySchema | null;
@@ -135,7 +132,7 @@ interface GameState {
   answerEvent: (choice: "deny" | "apologize" | "counterattack") => void;
   setPollTier: (tier: PollsterTier) => void;
   continueFromElectionResult: () => void;
-  setServingTab: (tab: ServingTab) => void;
+  setActiveTab: (tab: MainTab) => void;
   advanceServingWeek: () => void;
   proposeBill: (title: string, issueId: string, intensity: number, ideology: IdeologyPosition, targetRegionId?: string) => boolean;
   setActiveBill: (billId: string | null) => void;
@@ -262,7 +259,7 @@ function defaultWorldStatModifiers(): NationalPowerStats {
 
 export const useGameStore = create<GameState>((set, get) => ({
   phase: "character-creation",
-  servingTab: "profile",
+  activeTab: "country",
   seed: `career-${Date.now()}`,
   player: null,
   country: null,
@@ -330,7 +327,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     pushEvent(profile, 0, "trait-earned" as CareerEvent["type"], `Entered politics as a ${backstory.name}.`);
 
     set({
-      phase: "office-select",
+      phase: "playing",
       seed,
       player,
       country,
@@ -347,7 +344,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       bills: [],
       cabinet: [],
       profile,
-      servingTab: "profile",
+      activeTab: "country",
       aiNations: [],
       tensionByNationId: {},
       tradeAgreementsByNationId: {},
@@ -395,7 +392,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         ...nextProfile.relationships.filter((r) => r.role !== "rival"),
         { id: "patronage-rival", name: patronage.rivalName, role: "rival" as const, score: 0, historyLog: [`Your rival for ${office.title}.`] },
       ];
-      set({ phase: "campaigning", patronage, campaign: null, profile: nextProfile, lastElectionResult: null });
+      set({ phase: "playing", activeTab: "campaign", patronage, campaign: null, profile: nextProfile, lastElectionResult: null });
       return;
     }
 
@@ -443,7 +440,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     ];
 
     set({
-      phase: "campaigning",
+      phase: "playing",
+      activeTab: "campaign",
       campaign,
       profile: nextProfile,
       lastElectionResult: null,
@@ -605,11 +603,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   setPollTier: (tier) => set({ pollTier: tier }),
 
   continueFromElectionResult: () => {
-    const { currentOffice } = get();
-    set({ phase: currentOffice ? "serving" : "office-select", campaign: null, servingTab: "profile" });
+    set({ phase: "playing", campaign: null, activeTab: "country" });
   },
 
-  setServingTab: (tab) => set({ servingTab: tab }),
+  setActiveTab: (tab) => set({ activeTab: tab }),
 
   advanceServingWeek: () => {
     const { grid, currentOffice, absoluteWeek, seed, cabinet, profile, country, aiNations, tensionByNationId, tradeAgreementsByNationId, activeWar, worldStatModifiers, bills } = get();
@@ -940,14 +937,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       const idx = country.officeLadder.findIndex((o) => o.id === currentOffice.officeId);
       const next = country.officeLadder[idx + 1];
       if (next) {
-        set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null, cabinet: [] });
+        set({ officeHistory: history, currentOffice: null, phase: "playing", activeTab: "country", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null, cabinet: [] });
         return;
       }
     }
 
     // run-again (re-election) or fallback if no next tier exists — OfficeLadder itself blocks
     // re-announcing an office once termsServedByOffice reaches its termLimit.
-    set({ officeHistory: history, currentOffice: null, phase: "office-select", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null, cabinet: [] });
+    set({ officeHistory: history, currentOffice: null, phase: "playing", activeTab: "country", profile: nextProfile, termsServedByOffice: nextTermsServed, session: null, cabinet: [] });
   },
 
   getCandidatesForSlot: (slotId) => {
@@ -1376,7 +1373,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   resetGame: () =>
     set({
       phase: "character-creation",
-      servingTab: "profile",
+      activeTab: "country",
       seed: `career-${Date.now()}`,
       player: null,
       country: null,

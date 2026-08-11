@@ -17,6 +17,7 @@ import type {
 } from "../types/grid";
 import type { CountrySchema } from "../types/country";
 import { ISSUE_CATALOG } from "../types/legislature";
+import { nationalIdeologyBaseline } from "../data/countryBaselines";
 import { Rng } from "./rng";
 
 const AGE_BRACKETS: AgeBracket[] = ["18-29", "30-44", "45-64", "65+"];
@@ -77,22 +78,79 @@ const REGION_TEMPLATES: Record<string, RegionTemplate[]> = {
     { name: "Northeast (Dongbei)", popShare: 0.12, urbanBias: 0.1, leanOffset: { economic: -15, social: 15 } },
     { name: "West & Interior", popShare: 0.16, urbanBias: -0.5, leanOffset: { economic: -10, social: 20 } },
   ],
+  BR: [
+    { name: "Southeast (São Paulo & Rio)", popShare: 0.42, urbanBias: 0.7, leanOffset: { economic: 10, social: -10 } },
+    { name: "Northeast", popShare: 0.27, urbanBias: -0.1, leanOffset: { economic: -15, social: 10 } },
+    { name: "South", popShare: 0.15, urbanBias: 0.3, leanOffset: { economic: 15, social: 15 } },
+    { name: "North & Center-West", popShare: 0.16, urbanBias: -0.4, leanOffset: { economic: -5, social: 5 } },
+  ],
+  IN: [
+    { name: "North (Hindi Belt)", popShare: 0.35, urbanBias: -0.2, leanOffset: { economic: 5, social: 25 } },
+    { name: "West (Maharashtra & Gujarat)", popShare: 0.19, urbanBias: 0.4, leanOffset: { economic: 15, social: 10 } },
+    { name: "South (Dravidian states)", popShare: 0.2, urbanBias: 0.3, leanOffset: { economic: -5, social: -15 } },
+    { name: "East & Northeast", popShare: 0.17, urbanBias: -0.3, leanOffset: { economic: -10, social: 5 } },
+    { name: "National Capital Region", popShare: 0.09, urbanBias: 0.9, leanOffset: { economic: 10, social: -10 } },
+  ],
+  NG: [
+    { name: "Lagos & Southwest", popShare: 0.24, urbanBias: 0.6, leanOffset: { economic: 15, social: -10 } },
+    { name: "North (Sahel & Middle Belt)", popShare: 0.4, urbanBias: -0.4, leanOffset: { economic: -10, social: 35 } },
+    { name: "Southeast (Igbo states)", popShare: 0.16, urbanBias: 0.1, leanOffset: { economic: 5, social: 0 } },
+    { name: "South-South (Niger Delta)", popShare: 0.2, urbanBias: -0.1, leanOffset: { economic: -5, social: 10 } },
+  ],
+  MX: [
+    { name: "Valley of Mexico", popShare: 0.22, urbanBias: 0.8, leanOffset: { economic: -10, social: -10 } },
+    { name: "North (border states)", popShare: 0.24, urbanBias: 0.3, leanOffset: { economic: 15, social: 5 } },
+    { name: "Central Bajío", popShare: 0.26, urbanBias: 0.1, leanOffset: { economic: 5, social: 15 } },
+    { name: "South & Chiapas", popShare: 0.28, urbanBias: -0.5, leanOffset: { economic: -20, social: 10 } },
+  ],
+  KR: [
+    { name: "Seoul Capital Area", popShare: 0.5, urbanBias: 0.9, leanOffset: { economic: 0, social: -10 } },
+    { name: "Yeongnam (Southeast)", popShare: 0.22, urbanBias: 0.3, leanOffset: { economic: 10, social: 15 } },
+    { name: "Honam (Southwest)", popShare: 0.1, urbanBias: -0.1, leanOffset: { economic: -10, social: -15 } },
+    { name: "Central & Gangwon", popShare: 0.18, urbanBias: -0.2, leanOffset: { economic: 0, social: 5 } },
+  ],
+  ID: [
+    { name: "Java", popShare: 0.55, urbanBias: 0.4, leanOffset: { economic: 0, social: 10 } },
+    { name: "Sumatra", popShare: 0.21, urbanBias: -0.1, leanOffset: { economic: -5, social: 15 } },
+    { name: "Kalimantan & Sulawesi", popShare: 0.15, urbanBias: -0.3, leanOffset: { economic: -10, social: 5 } },
+    { name: "Eastern Islands", popShare: 0.09, urbanBias: -0.5, leanOffset: { economic: -15, social: -5 } },
+  ],
+  CA: [
+    { name: "Ontario", popShare: 0.38, urbanBias: 0.5, leanOffset: { economic: 0, social: -10 } },
+    { name: "Quebec", popShare: 0.23, urbanBias: 0.3, leanOffset: { economic: -10, social: -15 } },
+    { name: "British Columbia", popShare: 0.13, urbanBias: 0.4, leanOffset: { economic: -5, social: -15 } },
+    { name: "Prairies", popShare: 0.18, urbanBias: -0.2, leanOffset: { economic: 20, social: 15 } },
+    { name: "Atlantic Canada", popShare: 0.08, urbanBias: -0.3, leanOffset: { economic: -5, social: 5 } },
+  ],
+  ES: [
+    { name: "Madrid", popShare: 0.15, urbanBias: 0.8, leanOffset: { economic: 5, social: -10 } },
+    { name: "Catalonia", popShare: 0.17, urbanBias: 0.6, leanOffset: { economic: -5, social: -15 } },
+    { name: "Andalusia", popShare: 0.18, urbanBias: 0.0, leanOffset: { economic: -15, social: 5 } },
+    { name: "North (Basque, Galicia, Asturias)", popShare: 0.16, urbanBias: 0.1, leanOffset: { economic: -10, social: -5 } },
+    { name: "Levante & Islands", popShare: 0.34, urbanBias: 0.2, leanOffset: { economic: 0, social: 0 } },
+  ],
+  SE: [
+    { name: "Stockholm", popShare: 0.24, urbanBias: 0.9, leanOffset: { economic: 0, social: -15 } },
+    { name: "Götaland (South)", popShare: 0.45, urbanBias: 0.2, leanOffset: { economic: 5, social: 5 } },
+    { name: "Svealand (Central)", popShare: 0.2, urbanBias: 0.1, leanOffset: { economic: -5, social: 0 } },
+    { name: "Norrland (North)", popShare: 0.11, urbanBias: -0.5, leanOffset: { economic: -10, social: 10 } },
+  ],
+  PL: [
+    { name: "Mazovia (Warsaw)", popShare: 0.2, urbanBias: 0.7, leanOffset: { economic: 5, social: -15 } },
+    { name: "Silesia & South", popShare: 0.28, urbanBias: 0.3, leanOffset: { economic: 10, social: 10 } },
+    { name: "Eastern Poland", popShare: 0.24, urbanBias: -0.3, leanOffset: { economic: -10, social: 30 } },
+    { name: "Western Poland", popShare: 0.28, urbanBias: 0.1, leanOffset: { economic: 5, social: -5 } },
+  ],
+  VN: [
+    { name: "Red River Delta (Hanoi)", popShare: 0.24, urbanBias: 0.4, leanOffset: { economic: -5, social: 15 } },
+    { name: "Mekong Delta", popShare: 0.2, urbanBias: -0.2, leanOffset: { economic: -10, social: 10 } },
+    { name: "Southeast (Ho Chi Minh City)", popShare: 0.22, urbanBias: 0.8, leanOffset: { economic: 15, social: -5 } },
+    { name: "North & Central Highlands", popShare: 0.34, urbanBias: -0.5, leanOffset: { economic: -20, social: 20 } },
+  ],
 };
 
 function clamp(v: number, min = -100, max = 100): number {
   return Math.max(min, Math.min(max, v));
-}
-
-function nationalIdeologyBaseline(country: CountrySchema): IdeologyPosition {
-  // Rough real-world-flavored baselines; used as the center each region's lean offsets from.
-  const baselines: Record<string, IdeologyPosition> = {
-    US: { economic: 5, social: 0, foreignPolicy: 10 },
-    UK: { economic: -5, social: -5, foreignPolicy: 0 },
-    FR: { economic: -5, social: 0, foreignPolicy: -5 },
-    DE: { economic: 0, social: -5, foreignPolicy: -15 },
-    JP: { economic: 10, social: 15, foreignPolicy: -5 },
-  };
-  return baselines[country.id] ?? { economic: 0, social: 0, foreignPolicy: 0 };
 }
 
 function incomeForSegment(urbanRural: UrbanRural, age: AgeBracket, rng: Rng): IncomeBand {
@@ -186,7 +244,7 @@ export function buildGrid(country: CountrySchema, seed: string, playerIdeology: 
     }
   }
 
-  const baseline = nationalIdeologyBaseline(country);
+  const baseline = nationalIdeologyBaseline(country.id);
   const cells: GridCell[] = [];
 
   for (let ri = 0; ri < templates.length; ri++) {

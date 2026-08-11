@@ -8,6 +8,7 @@ import type { LiveGrid } from "./gridSystem";
 import { Rng } from "./rng";
 import { generateName } from "./nameGen";
 import { SAMPLE_COUNTRIES } from "../data/sample-countries";
+import { nationalIdeologyBaseline } from "../data/countryBaselines";
 
 const COUNTRY_BASELINE_STATS: Record<string, NationalPowerStats> = {
   US: { economy: 85, military: 95, diplomacy: 70, stability: 80, innovation: 90 },
@@ -17,6 +18,17 @@ const COUNTRY_BASELINE_STATS: Record<string, NationalPowerStats> = {
   JP: { economy: 80, military: 35, diplomacy: 65, stability: 83, innovation: 92 },
   SA: { economy: 70, military: 60, diplomacy: 55, stability: 60, innovation: 45 },
   CN: { economy: 88, military: 85, diplomacy: 60, stability: 75, innovation: 82 },
+  BR: { economy: 68, military: 55, diplomacy: 62, stability: 60, innovation: 60 },
+  IN: { economy: 65, military: 70, diplomacy: 60, stability: 65, innovation: 65 },
+  NG: { economy: 50, military: 45, diplomacy: 45, stability: 45, innovation: 42 },
+  MX: { economy: 62, military: 45, diplomacy: 55, stability: 55, innovation: 52 },
+  KR: { economy: 80, military: 65, diplomacy: 62, stability: 78, innovation: 90 },
+  ID: { economy: 60, military: 50, diplomacy: 55, stability: 58, innovation: 50 },
+  CA: { economy: 78, military: 45, diplomacy: 78, stability: 88, innovation: 80 },
+  ES: { economy: 68, military: 42, diplomacy: 70, stability: 80, innovation: 68 },
+  SE: { economy: 74, military: 35, diplomacy: 76, stability: 90, innovation: 85 },
+  PL: { economy: 66, military: 50, diplomacy: 58, stability: 72, innovation: 62 },
+  VN: { economy: 58, military: 55, diplomacy: 48, stability: 58, innovation: 48 },
 };
 
 /** Inherited baseline — the "before" side of the Legacy report's Domestic axis (Sec 15). */
@@ -40,19 +52,6 @@ export function neutralInheritedStats(country: CountrySchema): NationalPowerStat
 }
 
 const ARCHETYPES: LeaderArchetype[] = ["builder", "warhawk", "isolationist", "ideologue-exporter", "survivalist"];
-
-function nationalIdeologyBaseline(countryId: string) {
-  const baselines: Record<string, { economic: number; social: number; foreignPolicy: number }> = {
-    US: { economic: 5, social: 0, foreignPolicy: 10 },
-    UK: { economic: -5, social: -5, foreignPolicy: 0 },
-    FR: { economic: -5, social: 0, foreignPolicy: -5 },
-    DE: { economic: 0, social: -5, foreignPolicy: -15 },
-    JP: { economic: 10, social: 15, foreignPolicy: -5 },
-    SA: { economic: 20, social: 55, foreignPolicy: 20 },
-    CN: { economic: -10, social: 35, foreignPolicy: 15 },
-  };
-  return baselines[countryId] ?? { economic: 0, social: 0, foreignPolicy: 0 };
-}
 
 function clamp100(v: number): number {
   return Math.max(0, Math.min(100, v));

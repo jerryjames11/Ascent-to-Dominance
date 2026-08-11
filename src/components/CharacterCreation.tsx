@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useGameStore } from "../state/gameStore";
 import { SAMPLE_COUNTRIES } from "../data/sample-countries";
 import { BACKSTORIES } from "../data/backstories";
+import { WorldMapPicker } from "./WorldMapPicker";
 import type { BackstoryId, Gender } from "../types/player";
 import type { IdeologyPosition } from "../types/grid";
 import { regionOptionsForCountry } from "../systems/gridSystem";
@@ -20,25 +21,25 @@ export function CharacterCreation() {
   const createCharacter = useGameStore((s) => s.createCharacter);
   const [step, setStep] = useState<Step>(0);
 
+  const [countryId, setCountryId] = useState("");
+  const [homeRegionId, setHomeRegionId] = useState("");
   const [name, setName] = useState("");
   const [gender, setGender] = useState<Gender>("female");
   const [age, setAge] = useState(38);
-  const [countryId, setCountryId] = useState(SAMPLE_COUNTRIES[0].id);
-  const [homeRegionId, setHomeRegionId] = useState("");
   const [backstoryId, setBackstoryId] = useState<BackstoryId>("lawyer");
   const [ideology, setIdeology] = useState<IdeologyPosition>({ economic: 0, social: 0, foreignPolicy: 0 });
   const [ideologyTouched, setIdeologyTouched] = useState(false);
 
-  const country = useMemo(() => SAMPLE_COUNTRIES.find((c) => c.id === countryId)!, [countryId]);
-  const regionOptions = useMemo(() => regionOptionsForCountry(country), [country]);
+  const country = useMemo(() => SAMPLE_COUNTRIES.find((c) => c.id === countryId), [countryId]);
+  const regionOptions = useMemo(() => (country ? regionOptionsForCountry(country) : []), [country]);
   const backstory = useMemo(() => BACKSTORIES.find((b) => b.id === backstoryId)!, [backstoryId]);
 
   const effectiveHomeRegion = homeRegionId || regionOptions[0]?.id || "";
   const effectiveIdeology = ideologyTouched ? ideology : backstory.ideologyDefault;
 
   function canAdvance(): boolean {
-    if (step === 0) return name.trim().length > 0 && age >= 18 && age <= 90;
-    if (step === 1) return !!countryId && !!effectiveHomeRegion;
+    if (step === 0) return !!countryId;
+    if (step === 1) return name.trim().length > 0 && age >= 18 && age <= 90 && !!effectiveHomeRegion;
     if (step === 2) return !!backstoryId;
     return true;
   }
@@ -62,6 +63,30 @@ export function CharacterCreation() {
 
       {step === 0 && (
         <div className="card stack">
+          <h3>Where in the world?</h3>
+          <p className="muted">
+            Pick a country. It locks your political-system archetype — how you campaign, govern, and rise is shaped by this.
+          </p>
+          <WorldMapPicker selectedId={countryId} onSelect={(id) => { setCountryId(id); setHomeRegionId(""); }} />
+          {country && (
+            <div className="card" style={{ background: "var(--accent-soft)", borderColor: "var(--accent)" }}>
+              <div className="row between">
+                <strong>{country.name}</strong>
+                <span className="badge">{SYSTEM_LABEL[country.systemType]}</span>
+              </div>
+              <p className="faint" style={{ margin: "4px 0 0" }}>
+                {country.structure === "federal" ? "Federal" : "Unitary"} · {country.electoralSystem} · Institutional Strength{" "}
+                {country.baselineInstitutionalStrength}
+                {country.progressionMode !== "electoral-persuasion" &&
+                  ` · ${country.progressionMode === "court-intrigue" ? "court-intrigue" : "party-patronage"} advancement, no elections`}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === 1 && (
+        <div className="card stack">
           <h3>Who are you?</h3>
           <label className="stack" style={{ gap: 4 }}>
             <span className="label">Name</span>
@@ -82,36 +107,18 @@ export function CharacterCreation() {
             </label>
           </div>
           <p className="faint">Age affects office-eligibility minimums and how much career you realistically have left to build.</p>
-        </div>
-      )}
-
-      {step === 1 && (
-        <div className="card stack">
-          <h3>Choose your country</h3>
-          <p className="muted">Locks your political-system archetype — how you campaign, govern, and rise is shaped by this.</p>
-          <div className="stack">
-            {SAMPLE_COUNTRIES.map((c) => (
-              <div key={c.id} className={`option-card ${countryId === c.id ? "selected" : ""}`} onClick={() => { setCountryId(c.id); setHomeRegionId(""); }}>
-                <div className="row between">
-                  <strong>{c.name}</strong>
-                  <span className="badge">{SYSTEM_LABEL[c.systemType]}</span>
-                </div>
-                <p className="faint" style={{ margin: "4px 0 0" }}>
-                  {c.structure === "federal" ? "Federal" : "Unitary"} · {c.electoralSystem} · Institutional Strength {c.baselineInstitutionalStrength}
-                </p>
-              </div>
-            ))}
-          </div>
-          <label className="stack" style={{ gap: 4 }}>
-            <span className="label">Home region — where you'll first run</span>
-            <select value={effectiveHomeRegion} onChange={(e) => setHomeRegionId(e.target.value)}>
-              {regionOptions.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {regionOptions.length > 0 && (
+            <label className="stack" style={{ gap: 4 }}>
+              <span className="label">Home region — where you'll first run</span>
+              <select value={effectiveHomeRegion} onChange={(e) => setHomeRegionId(e.target.value)}>
+                {regionOptions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       )}
 

@@ -3,22 +3,12 @@
 import type { CountrySchema } from "../types/country";
 import type { Faction, Legislator, AmbitionArchetype } from "../types/legislature";
 import type { IdeologyPosition } from "../types/grid";
+import { nationalIdeologyBaseline } from "../data/countryBaselines";
 import { Rng } from "./rng";
 import { generateName } from "./nameGen";
 
 const ARCHETYPES: AmbitionArchetype[] = ["climber", "ideologue", "loyalist", "pragmatist", "survivor"];
 const TARGET_BLOC_COUNT = 28;
-
-function nationalIdeologyBaseline(countryId: string): IdeologyPosition {
-  const baselines: Record<string, IdeologyPosition> = {
-    US: { economic: 5, social: 0, foreignPolicy: 10 },
-    UK: { economic: -5, social: -5, foreignPolicy: 0 },
-    FR: { economic: -5, social: 0, foreignPolicy: -5 },
-    DE: { economic: 0, social: -5, foreignPolicy: -15 },
-    JP: { economic: 10, social: 15, foreignPolicy: -5 },
-  };
-  return baselines[countryId] ?? { economic: 0, social: 0, foreignPolicy: 0 };
-}
 
 const FACTION_NAME_POOL = [
   "Progress Coalition",

@@ -499,3 +499,93 @@ tr:last-child td {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* --- World map picker --- */
+
+.world-map-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.world-map-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.world-map-land {
+  fill: var(--border);
+  stroke: var(--bg-sunken);
+  stroke-width: 1.5;
+}
+
+.world-map-marker {
+  fill: var(--accent);
+  stroke: var(--bg-sunken);
+  stroke-width: 2;
+  transition: r 0.12s ease;
+}
+
+.world-map-marker.selected {
+  fill: var(--accent-strong);
+  stroke: var(--bg-elevated);
+  stroke-width: 3;
+}
+
+.world-map-marker-group:hover .world-map-marker {
+  fill: var(--accent-strong);
+}
+
+.world-map-label {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--text);
+  paint-order: stroke;
+  stroke: var(--bg-sunken);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+/* --- Bottom nav --- */
+
+.bottom-nav {
+  display: flex;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px 10px;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.bottom-nav-item.active {
+  color: var(--accent);
+}
+
+.bottom-nav-item:disabled {
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+
+.bottom-nav-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.tab-placeholder {
+  text-align: center;
+  padding: 48px 20px;
+}

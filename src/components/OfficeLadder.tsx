@@ -13,8 +13,26 @@ export function OfficeLadder() {
   const termsServedByOffice = useGameStore((s) => s.termsServedByOffice);
   const termLimitRemoved = useGameStore((s) => s.termLimitRemoved);
   const announceCandidacy = useGameStore((s) => s.announceCandidacy);
+  const campaign = useGameStore((s) => s.campaign);
+  const patronage = useGameStore((s) => s.patronage);
+  const setActiveTab = useGameStore((s) => s.setActiveTab);
 
   if (!country || !player) return null;
+
+  if (campaign || patronage) {
+    const title = campaign?.officeTitle ?? patronage?.officeTitle;
+    return (
+      <div className="center-column">
+        <h1>{country.name} — Office Ladder</h1>
+        <div className="card">
+          <p style={{ marginBottom: 10 }}>You're already in contention for {title}. Announcing again isn't possible mid-race.</p>
+          <button className="btn btn-primary" onClick={() => setActiveTab("campaign")}>
+            Go to Campaign
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const highestTierHeld = officeHistory.reduce((max, o) => Math.max(max, o.tier), 0);
 
