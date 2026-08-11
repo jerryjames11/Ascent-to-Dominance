@@ -22,6 +22,14 @@ const NAME_POOLS: Record<string, { first: string[]; last: string[] }> = {
     first: ["Hiroshi", "Yuki", "Kenji", "Aiko", "Takashi", "Naomi", "Ryo", "Sakura", "Daichi", "Emi"],
     last: ["Tanaka", "Watanabe", "Kobayashi", "Yamashita", "Kimura", "Saito", "Nakagawa", "Fujimoto", "Ishikawa", "Ono"],
   },
+  SA: {
+    first: ["Khalid", "Fahad", "Turki", "Noura", "Bandar", "Reema", "Saud", "Mishal", "Abdulaziz", "Haifa"],
+    last: ["Al-Rashid", "Al-Otaibi", "Al-Harbi", "Al-Qahtani", "Al-Dossari", "Al-Shammari", "Al-Zahrani", "Al-Mutairi", "Al-Ghamdi", "Al-Subaie"],
+  },
+  CN: {
+    first: ["Wei", "Jun", "Li", "Xin", "Hui", "Yan", "Cheng", "Mei", "Bo", "Lan"],
+    last: ["Zhang", "Wang", "Chen", "Liu", "Zhao", "Sun", "Zhou", "Wu", "Xu", "Feng"],
+  },
 };
 
 export function generateName(countryId: string, rng: Rng): string {

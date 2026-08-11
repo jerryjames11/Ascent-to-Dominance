@@ -174,4 +174,73 @@ export const SAMPLE_COUNTRIES: CountrySchema[] = [
     demographicAxes: [],
     progressionMode: "electoral-persuasion",
   },
+  {
+    // Sec 19: no electoral ladder — advancement is court appointment, royal favor, succession
+    // politics. "Royal Family Cohesion" stands in for Institutional Strength; coup risk is
+    // structural (palace/succession intrigue). Runs on the court-intrigue campaign-analog.
+    id: "SA",
+    name: "Saudi Arabia",
+    systemType: "absolute-monarchy",
+    structure: "unitary",
+    electoralSystem: "N/A",
+    executiveSelectionMethod: "hereditary",
+    officeLadder: [
+      { id: "sa-minister", title: "Ministerial Appointment", tier: 1, termLength: 3, termLimit: null,
+        eligibilityRules: { minAge: 25, citizenshipRequired: true, residencyYears: 0 },
+        grantsWorldAccess: "none", grantsAppointmentPower: true },
+      { id: "sa-senior-ministry", title: "Senior Ministry", tier: 2, termLength: 3, termLimit: null,
+        eligibilityRules: { minAge: 30, citizenshipRequired: true, residencyYears: 0 },
+        grantsWorldAccess: "none", grantsAppointmentPower: true },
+      { id: "sa-crown-prince", title: "Crown Prince Designation", tier: 3, termLength: 4, termLimit: null,
+        eligibilityRules: { minAge: 30, citizenshipRequired: true, residencyYears: 0 },
+        grantsWorldAccess: "observer", grantsAppointmentPower: false },
+      { id: "sa-king", title: "King", tier: 4, termLength: 8, termLimit: null,
+        eligibilityRules: { minAge: 35, citizenshipRequired: true, residencyYears: 0 },
+        grantsWorldAccess: "full", grantsAppointmentPower: true },
+    ],
+    legislatureStructure: {
+      cameral: "unicameral",
+      chambers: [{ name: "Shura Council", seatCount: 150, selectionMethod: "appointed" }],
+    },
+    baselineInstitutionalStrength: 55, // Royal Family Cohesion
+    baselineCoupRiskCeiling: "structural",
+    partyDiscipline: "rigid",
+    demographicAxes: ["tribal-court-faction"],
+    progressionMode: "court-intrigue",
+  },
+  {
+    // Sec 19: advancement is internal to the party (provincial performance, central committee),
+    // not popular vote. "Party Cohesion / Faction Standing" stands in for Institutional Strength;
+    // low classic-coup risk but moderate internal-purge risk. Runs on the party-patronage
+    // campaign-analog, where performance metrics largely replace the persuasion grid.
+    id: "CN",
+    name: "China",
+    systemType: "one-party-state",
+    structure: "unitary",
+    electoralSystem: "N/A",
+    executiveSelectionMethod: "party-congress",
+    officeLadder: [
+      { id: "cn-local-branch", title: "Local Party Secretary", tier: 1, termLength: 5, termLimit: null,
+        eligibilityRules: { minAge: 25, citizenshipRequired: true, residencyYears: 0 },
+        grantsWorldAccess: "none", grantsAppointmentPower: true },
+      { id: "cn-provincial", title: "Provincial Party Secretary/Governor", tier: 2, termLength: 5, termLimit: null,
+        eligibilityRules: { minAge: 35, citizenshipRequired: true, residencyYears: 0 },
+        grantsWorldAccess: "none", grantsAppointmentPower: true },
+      { id: "cn-central-committee", title: "Central Committee Member", tier: 3, termLength: 5, termLimit: null,
+        eligibilityRules: { minAge: 40, citizenshipRequired: true, residencyYears: 0 },
+        grantsWorldAccess: "observer", grantsAppointmentPower: false },
+      { id: "cn-general-secretary", title: "General Secretary", tier: 4, termLength: 5, termLimit: null,
+        eligibilityRules: { minAge: 45, citizenshipRequired: true, residencyYears: 0 },
+        grantsWorldAccess: "full", grantsAppointmentPower: true },
+    ],
+    legislatureStructure: {
+      cameral: "unicameral",
+      chambers: [{ name: "National People's Congress", seatCount: 2977, selectionMethod: "party-selected" }],
+    },
+    baselineInstitutionalStrength: 60, // Party Cohesion / Faction Standing
+    baselineCoupRiskCeiling: "moderate", // classic coups rare; this models internal-purge risk
+    partyDiscipline: "rigid",
+    demographicAxes: ["performance-metric-salience"],
+    progressionMode: "party-patronage",
+  },
 ];

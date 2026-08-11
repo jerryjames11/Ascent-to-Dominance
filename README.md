@@ -1,11 +1,11 @@
-# Rise to Power — Prototype (Phases 1–4)
+# Rise to Power — Prototype (Phases 1–5)
 
 Political career sim. Core loop: **announce candidacy → campaign → win/lose → serve, legislate,
-appoint a cabinet, manage the world stage → announce again**. See
-[rise-to-power-design-doc.md](../rise-to-power-design-doc.md) for full spec and
-[HANDOFF.md](./HANDOFF.md) for the original Phase 1 build order. Phases 1 through 4 of the doc's
-five-phase build order (Sec 21) are implemented; Phase 5 (Legacy/endgame scoring, full 190-country
-data pass, non-electoral country modes) is not.
+appoint a cabinet, manage the world stage → announce again → retire (or be overthrown) into a
+Legacy report**. See [rise-to-power-design-doc.md](../rise-to-power-design-doc.md) for full spec
+and [HANDOFF.md](./HANDOFF.md) for the original Phase 1 build order. All five phases of the doc's
+build order (Sec 21) are implemented, with one deliberate exception: the full 190-country data
+pass, which HANDOFF.md explicitly defers to a design/data session rather than implementation.
 
 ## Run it
 
@@ -59,10 +59,22 @@ the Defense/Interior cabinet appointment and mitigations (purge, budget increase
 command); a visible, multi-factor Coup Probability gauge and a full coup event sequence
 (rally/negotiate/flee → fails/exile/imprisoned, each with real consequences and Legacy traits).
 
+**Phase 5 — closing the loop:** Legacy/endgame scoring (Sec 15) — six axes (Domestic Legacy vs a
+fair inherited baseline, Global Standing from dominance paths led, Democratic Integrity,
+Promise Integrity, Political Skill, Personal Reputation), a headline archetype (Statesman /
+Reformer / Strongman / Kingmaker / Warlord / Technocrat / Populist / Fallen) computed from the
+axes, a templated historian-style narrative built purely from tracked career data, and a
+replayability hook listing untried countries. Non-electoral country modes (Sec 19): Saudi Arabia
+runs on a **court-intrigue** campaign-analog and China on **party-patronage** — a 26-week favor
+cycle against a rival contender, managed across four weighted power brokers, with performance
+metrics weighing heavily in party mode; selections resolve into the same result pipeline as
+elections, and losses are career setbacks, not endings.
+
 ## Known simplifications
 
-- Legacy/endgame scoring (Sec 15) is not built — the end screen shows raw career data, not the
-  full multi-axis scoring and headline archetypes.
-- Only the 5 Phase 1 sample countries exist; the full 190-country data pass and non-electoral
-  country modes (court-intrigue monarchies, party-patronage one-party states) are Phase 5 scope.
-- AI nations are drawn from that same 5-country pool rather than a populated rest-of-world.
+- Only 7 countries exist (the doc's representative sample plus its two fully-specified
+  non-electoral rows). The full 190-country data pass is deferred to a design/data session per
+  HANDOFF.md — the schema and both progression modes are ready for it.
+- AI nations are drawn from that same country pool rather than a populated rest-of-world.
+- Court-intrigue and party-patronage share one patronage engine with mode-specific weights and
+  flavor, rather than two fully distinct sub-systems.

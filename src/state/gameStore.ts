@@ -40,6 +40,8 @@ import { AUTHORITARIAN_ACTIONS, OFF_RAMPS, ratchetedCost, availableActions } fro
 import type { TriggerState } from "../systems/authoritarianSystem";
 import { militaryLoyaltyBaseline, computeCoupProbability, weeklyCoupChance, resolveCoupAttempt } from "../systems/coupSystem";
 import type { AuthoritarianActionId, OffRampActionId, PendingCoupEvent, CoupChoice, CareerEndingReason } from "../types/authoritarian";
+import { initPatronageState, applyPatronageAction, tickPatronageWeek, resolvePatronageSelection, PATRONAGE_ACTION_DEFS } from "../systems/patronageSystem";
+import type { PatronageState, PatronageActionType } from "../types/patronage";
 import { Rng } from "../systems/rng";
 
 export type Phase =
@@ -122,6 +124,9 @@ interface GameState {
   pendingCoupEvent: PendingCoupEvent | null;
   endingReason: CareerEndingReason | null;
 
+  // Non-electoral advancement (Sec 19 court-intrigue / party-patronage campaign-analog)
+  patronage: PatronageState | null;
+
   // actions
   createCharacter: (input: CharacterCreationInput) => void;
   announceCandidacy: (officeId: string) => void;
@@ -157,6 +162,8 @@ interface GameState {
   decentralizeCommand: () => void;
   enactByDecree: (billId: string) => void;
   resolveCoup: (choice: CoupChoice) => void;
+  runPatronageAction: (actionType: PatronageActionType, brokerId?: string) => string;
+  advancePatronageWeek: () => void;
   endTerm: (choice: "run-again" | "run-next-tier" | "retire") => void;
   resetGame: () => void;
 }
@@ -293,6 +300,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   commandDecentralized: false,
   pendingCoupEvent: null,
   endingReason: null,
+  patronage: null,
 
   createCharacter: (input) => {
     const country = countryById(input.countryId);
@@ -359,6 +367,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       commandDecentralized: false,
       pendingCoupEvent: null,
       endingReason: null,
+      patronage: null,
     });
   },
 
@@ -367,6 +376,29 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (!country || !player || !grid) return;
     const office = country.officeLadder.find((o) => o.id === officeId);
     if (!office) return;
+
+    // Non-electoral countries (Sec 19): the campaign is replaced by a court-intrigue or
+    // party-patronage favor cycle against a rival contender — no polls, no voters.
+    if (country.progressionMode !== "electoral-persuasion") {
+      const mode = country.progressionMode;
+      const patronage = initPatronageState(office, country, mode, `${seed}-w${absoluteWeek}`);
+      const nextProfile = { ...profile };
+      pushEvent(
+        nextProfile,
+        absoluteWeek,
+        "candidacy-announced",
+        mode === "court-intrigue"
+          ? `Entered contention for ${office.title} — the court is watching.`
+          : `Entered contention for ${office.title} — the party is evaluating.`
+      );
+      nextProfile.relationships = [
+        ...nextProfile.relationships.filter((r) => r.role !== "rival"),
+        { id: "patronage-rival", name: patronage.rivalName, role: "rival" as const, score: 0, historyLog: [`Your rival for ${office.title}.`] },
+      ];
+      set({ phase: "campaigning", patronage, campaign: null, profile: nextProfile, lastElectionResult: null });
+      return;
+    }
+
     const scopeRegionIds = scopeForOffice(country, office, player.homeRegionId);
     const isReelection = get().currentOffice?.officeId === officeId;
     let opponents = generateOpponents(country, office, `${seed}-w${absoluteWeek}`, country.electoralSystem === "run-off" ? 3 : 2);
@@ -1276,6 +1308,71 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 
+  runPatronageAction: (actionType, brokerId) => {
+    const { patronage, seed, absoluteWeek } = get();
+    if (!patronage) return "";
+    const def = PATRONAGE_ACTION_DEFS.find((d) => d.type === actionType)!;
+    if (patronage.apRemaining < def.apCost) return "Not enough time left this week for that.";
+    const rng = new Rng(`${seed}-pat-${absoluteWeek}-${patronage.weeksRemaining}-${actionType}`);
+    const next: PatronageState = { ...patronage, brokers: patronage.brokers.map((b) => ({ ...b })), actionLog: [...patronage.actionLog] };
+    const outcome = applyPatronageAction(next, actionType, brokerId, rng);
+
+    const profile = { ...get().profile };
+    profile.authenticity = clamp(profile.authenticity + outcome.authenticityDelta);
+    profile.corruptionScore = clamp(profile.corruptionScore + outcome.corruptionDelta);
+
+    set({ patronage: next, profile });
+    return outcome.summary;
+  },
+
+  advancePatronageWeek: () => {
+    const { patronage, seed, absoluteWeek, country } = get();
+    if (!patronage || !country) return;
+    const rng = new Rng(`${seed}-pattick-${absoluteWeek}`);
+    const next: PatronageState = { ...patronage, brokers: patronage.brokers.map((b) => ({ ...b })) };
+    tickPatronageWeek(next, rng);
+    const newAbsoluteWeek = absoluteWeek + 1;
+
+    if (next.weeksRemaining <= 0) {
+      const result = resolvePatronageSelection(next);
+      const office = country.officeLadder.find((o) => o.id === next.officeId)!;
+      const profile = { ...get().profile, careerStats: { ...get().profile.careerStats } };
+
+      if (result.winnerId === "player") {
+        pushEvent(profile, newAbsoluteWeek, "election-won", `Selected for ${office.title}.`);
+        const legislature = generateLegislature(country, get().player!.ideology, `${seed}-${office.id}-${newAbsoluteWeek}`, office.tier);
+        profile.relationships = [...profile.relationships.filter((r) => r.role !== "party-leader"), ...seedRelationships(legislature)];
+        pushEvent(profile, newAbsoluteWeek, "office-assumed", `Assumed office as ${office.title}.`);
+
+        const existingNations = get().aiNations;
+        const worldInit =
+          office.tier >= 3 && existingNations.length === 0
+            ? { aiNations: generateAiNations(country.id, seed), tensionByNationId: {} as Record<string, number> }
+            : null;
+
+        set({
+          absoluteWeek: newAbsoluteWeek,
+          lastElectionResult: result,
+          phase: "election-result",
+          profile,
+          currentOffice: { officeId: office.id, title: office.title, tier: office.tier, startedWeek: newAbsoluteWeek },
+          legislature,
+          bills: [],
+          cabinet: [],
+          session: sessionForWeek(0),
+          patronage: null,
+          ...(worldInit ?? {}),
+        });
+      } else {
+        pushEvent(profile, newAbsoluteWeek, "election-lost", `Passed over for ${office.title} in favor of ${next.rivalName}.`);
+        set({ absoluteWeek: newAbsoluteWeek, lastElectionResult: result, phase: "election-result", profile, patronage: null });
+      }
+      return;
+    }
+
+    set({ absoluteWeek: newAbsoluteWeek, patronage: next });
+  },
+
   resetGame: () =>
     set({
       phase: "character-creation",
@@ -1317,6 +1414,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       commandDecentralized: false,
       pendingCoupEvent: null,
       endingReason: null,
+      patronage: null,
     }),
 }));
 

@@ -38,6 +38,16 @@ export const TRAITS: Trait[] = [
   { id: "restored-the-republic", name: "Restored the Republic", description: "Reversed significant authoritarian drift. Major Legacy-positive weight.", category: "authoritarian" },
   { id: "iron-fist", name: "Iron Fist", description: "Institutional Strength stayed critically low through term end. Control bonus, permanent pariah penalty.", category: "authoritarian", negative: true },
   { id: "peaceful-transition", name: "Peaceful Transition", description: "Retired or termed out with institutions intact. Core \"Statesman\" input.", category: "authoritarian" },
+
+  // Legacy capstones — Sec 15/17, assigned at career end from the scoring axes
+  { id: "legacy-statesman", name: "Statesman", description: "Left office with institutions intact and promises largely kept.", category: "legacy" },
+  { id: "legacy-reformer", name: "Reformer", description: "A career defined by what actually got passed.", category: "legacy" },
+  { id: "legacy-strongman", name: "Strongman", description: "Held power by hollowing out the institutions that checked it.", category: "legacy", negative: true },
+  { id: "legacy-kingmaker", name: "Kingmaker", description: "Never took the top office — never needed it.", category: "legacy" },
+  { id: "legacy-warlord", name: "Warlord", description: "Power measured in fronts held and wars won.", category: "legacy", negative: true },
+  { id: "legacy-technocrat", name: "Technocrat", description: "Governed on competence, not charisma.", category: "legacy" },
+  { id: "legacy-populist", name: "Populist", description: "The crowd, always the crowd.", category: "legacy" },
+  { id: "legacy-fallen", name: "Fallen", description: "The career ended in exile or a cell.", category: "legacy", negative: true },
 ];
 
 export function getTrait(id: string): Trait | undefined {

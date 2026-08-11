@@ -64,6 +64,19 @@ const REGION_TEMPLATES: Record<string, RegionTemplate[]> = {
     { name: "Hokkaido & Tohoku", popShare: 0.11, urbanBias: -0.4, leanOffset: { economic: -5, social: 5 } },
     { name: "Chugoku & Shikoku", popShare: 0.1, urbanBias: -0.3, leanOffset: { economic: 5, social: 10 } },
   ],
+  SA: [
+    { name: "Riyadh & Najd", popShare: 0.32, urbanBias: 0.5, leanOffset: { economic: 10, social: 20 } },
+    { name: "Hejaz (Mecca & Jeddah)", popShare: 0.3, urbanBias: 0.6, leanOffset: { economic: 5, social: 5 } },
+    { name: "Eastern Province", popShare: 0.18, urbanBias: 0.3, leanOffset: { economic: 15, social: 0 } },
+    { name: "Asir & South", popShare: 0.2, urbanBias: -0.4, leanOffset: { economic: -5, social: 25 } },
+  ],
+  CN: [
+    { name: "Coastal East", popShare: 0.3, urbanBias: 0.7, leanOffset: { economic: 15, social: -5 } },
+    { name: "South (Guangdong & Fujian)", popShare: 0.18, urbanBias: 0.6, leanOffset: { economic: 20, social: -5 } },
+    { name: "Central Provinces", popShare: 0.24, urbanBias: -0.1, leanOffset: { economic: -5, social: 10 } },
+    { name: "Northeast (Dongbei)", popShare: 0.12, urbanBias: 0.1, leanOffset: { economic: -15, social: 15 } },
+    { name: "West & Interior", popShare: 0.16, urbanBias: -0.5, leanOffset: { economic: -10, social: 20 } },
+  ],
 };
 
 function clamp(v: number, min = -100, max = 100): number {

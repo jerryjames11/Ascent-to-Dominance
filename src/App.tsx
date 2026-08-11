@@ -10,6 +10,7 @@ import { LegislatureScreen } from "./components/LegislatureScreen";
 import { WorldScreen } from "./components/WorldScreen";
 import { LegacyScreen } from "./components/LegacyScreen";
 import { CoupEventModal } from "./components/CoupEventModal";
+import { PatronageScreen } from "./components/PatronageScreen";
 
 function ServingArea() {
   const servingTab = useGameStore((s) => s.servingTab);
@@ -29,6 +30,7 @@ function ServingArea() {
 
 export default function App() {
   const phase = useGameStore((s) => s.phase);
+  const patronage = useGameStore((s) => s.patronage);
 
   return (
     <div className="app-shell">
@@ -39,7 +41,7 @@ export default function App() {
         <div className="scroll-area">
           {phase === "character-creation" && <CharacterCreation />}
           {phase === "office-select" && <OfficeLadder />}
-          {phase === "campaigning" && <CampaignScreen />}
+          {phase === "campaigning" && (patronage ? <PatronageScreen /> : <CampaignScreen />)}
           {phase === "election-result" && <ElectionResultScreen />}
           {phase === "career-ended" && <LegacyScreen />}
         </div>

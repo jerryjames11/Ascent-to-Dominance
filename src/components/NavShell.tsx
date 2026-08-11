@@ -5,6 +5,7 @@ export function TopBar() {
   const country = useGameStore((s) => s.country);
   const currentOffice = useGameStore((s) => s.currentOffice);
   const campaign = useGameStore((s) => s.campaign);
+  const patronage = useGameStore((s) => s.patronage);
   const resetGame = useGameStore((s) => s.resetGame);
 
   return (
@@ -17,7 +18,13 @@ export function TopBar() {
         {player && (
           <span className="muted" style={{ fontSize: "0.85rem" }}>
             {player.name}
-            {currentOffice ? ` · ${currentOffice.title}` : campaign ? ` · Candidate for ${campaign.officeTitle}` : ""}
+            {currentOffice
+              ? ` · ${currentOffice.title}`
+              : campaign
+              ? ` · Candidate for ${campaign.officeTitle}`
+              : patronage
+              ? ` · In contention for ${patronage.officeTitle}`
+              : ""}
           </span>
         )}
         {player && (

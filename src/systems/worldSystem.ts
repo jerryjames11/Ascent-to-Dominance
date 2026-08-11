@@ -15,10 +15,28 @@ const COUNTRY_BASELINE_STATS: Record<string, NationalPowerStats> = {
   FR: { economy: 72, military: 60, diplomacy: 75, stability: 75, innovation: 75 },
   DE: { economy: 88, military: 40, diplomacy: 72, stability: 85, innovation: 88 },
   JP: { economy: 80, military: 35, diplomacy: 65, stability: 83, innovation: 92 },
+  SA: { economy: 70, military: 60, diplomacy: 55, stability: 60, innovation: 45 },
+  CN: { economy: 88, military: 85, diplomacy: 60, stability: 75, innovation: 82 },
 };
 
-function baselineFor(countryId: string): NationalPowerStats {
+/** Inherited baseline — the "before" side of the Legacy report's Domestic axis (Sec 15). */
+export function baselineFor(countryId: string): NationalPowerStats {
   return COUNTRY_BASELINE_STATS[countryId] ?? { economy: 60, military: 50, diplomacy: 55, stability: 60, innovation: 55 };
+}
+
+/** What computePlayerNationalStats would yield for a caretaker who changed nothing: neutral 50
+ *  approval, no bills, no cabinet. The fair "inherited" reference for the Legacy Domestic axis —
+ *  comparing final stats against the raw baseline would penalize every career structurally,
+ *  because the live formula blends approval into every stat. */
+export function neutralInheritedStats(country: CountrySchema): NationalPowerStats {
+  const b = baselineFor(country.id);
+  return {
+    economy: clamp100(b.economy * 0.55 + 50 * 0.25),
+    military: clamp100(b.military * 0.7),
+    diplomacy: clamp100(b.diplomacy * 0.6 + 50 * 0.1),
+    stability: clamp100(country.baselineInstitutionalStrength * 0.4 + 50 * 0.5),
+    innovation: clamp100(b.innovation * 0.6),
+  };
 }
 
 const ARCHETYPES: LeaderArchetype[] = ["builder", "warhawk", "isolationist", "ideologue-exporter", "survivalist"];
@@ -30,6 +48,8 @@ function nationalIdeologyBaseline(countryId: string) {
     FR: { economic: -5, social: 0, foreignPolicy: -5 },
     DE: { economic: 0, social: -5, foreignPolicy: -15 },
     JP: { economic: 10, social: 15, foreignPolicy: -5 },
+    SA: { economic: 20, social: 55, foreignPolicy: 20 },
+    CN: { economic: -10, social: 35, foreignPolicy: 15 },
   };
   return baselines[countryId] ?? { economic: 0, social: 0, foreignPolicy: 0 };
 }
