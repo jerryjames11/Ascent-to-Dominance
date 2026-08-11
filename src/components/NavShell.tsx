@@ -27,6 +27,7 @@ export function TopBar() {
               : ""}
           </span>
         )}
+        {player && <span className="faint" title="Your career saves to this browser automatically as you play">💾 auto-saved</span>}
         {player && (
           <button className="btn btn-ghost btn-sm" onClick={() => { if (confirm("Abandon this career and start over?")) resetGame(); }}>
             New career

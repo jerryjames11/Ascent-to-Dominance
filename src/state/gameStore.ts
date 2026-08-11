@@ -42,6 +42,7 @@ import { militaryLoyaltyBaseline, computeCoupProbability, weeklyCoupChance, reso
 import type { AuthoritarianActionId, OffRampActionId, PendingCoupEvent, CoupChoice, CareerEndingReason } from "../types/authoritarian";
 import { initPatronageState, applyPatronageAction, tickPatronageWeek, resolvePatronageSelection, PATRONAGE_ACTION_DEFS } from "../systems/patronageSystem";
 import type { PatronageState, PatronageActionType } from "../types/patronage";
+import { saveToLocalStorage, loadFromLocalStorage, deserializeSave, clearSavedGame } from "../systems/saveSystem";
 import { Rng } from "../systems/rng";
 
 // "playing" covers what used to be three separate phases (office-select/campaigning/serving) —
@@ -76,7 +77,7 @@ export interface SessionState {
 export const SESSION_LENGTH_WEEKS = 13; // quarterly, Sec 9
 export const SESSION_BILL_CAPACITY = 2;
 
-interface GameState {
+export interface GameState {
   phase: Phase;
   activeTab: MainTab;
   seed: string;
@@ -163,6 +164,7 @@ interface GameState {
   advancePatronageWeek: () => void;
   endTerm: (choice: "run-again" | "run-next-tier" | "retire") => void;
   resetGame: () => void;
+  loadGame: () => boolean;
 }
 
 const countryById = (id: string): CountrySchema => {
@@ -1370,7 +1372,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ absoluteWeek: newAbsoluteWeek, patronage: next });
   },
 
-  resetGame: () =>
+  resetGame: () => {
+    clearSavedGame();
     set({
       phase: "character-creation",
       activeTab: "country",
@@ -1412,8 +1415,24 @@ export const useGameStore = create<GameState>((set, get) => ({
       pendingCoupEvent: null,
       endingReason: null,
       patronage: null,
-    }),
+    });
+  },
+
+  loadGame: () => {
+    const data = loadFromLocalStorage();
+    if (!data) return false;
+    set(deserializeSave(data));
+    return true;
+  },
 }));
+
+// Autosave — a debounced subscription outside the store definition so no individual action needs
+// to remember to save explicitly. Skips saving until a player exists (see saveToLocalStorage).
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+useGameStore.subscribe((state) => {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveToLocalStorage(state), 250);
+});
 
 export function actionDefsList() {
   return ACTION_DEFS;

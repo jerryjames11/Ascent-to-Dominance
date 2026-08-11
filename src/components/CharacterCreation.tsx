@@ -3,6 +3,7 @@ import { useGameStore } from "../state/gameStore";
 import { SAMPLE_COUNTRIES } from "../data/sample-countries";
 import { BACKSTORIES } from "../data/backstories";
 import { WorldMapPicker } from "./WorldMapPicker";
+import { savedGameSummary } from "../systems/saveSystem";
 import type { BackstoryId, Gender } from "../types/player";
 import type { IdeologyPosition } from "../types/grid";
 import { regionOptionsForCountry } from "../systems/gridSystem";
@@ -17,8 +18,21 @@ const SYSTEM_LABEL: Record<string, string> = {
   "one-party-state": "One-party state",
 };
 
+function timeAgo(ms: number): string {
+  const minutes = Math.round((Date.now() - ms) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 export function CharacterCreation() {
   const createCharacter = useGameStore((s) => s.createCharacter);
+  const loadGame = useGameStore((s) => s.loadGame);
+  const [savedSummary] = useState(() => savedGameSummary());
+  const [resumeDismissed, setResumeDismissed] = useState(false);
   const [step, setStep] = useState<Step>(0);
 
   const [countryId, setCountryId] = useState("");
@@ -54,6 +68,27 @@ export function CharacterCreation() {
       backstoryId,
       ideology: effectiveIdeology,
     });
+  }
+
+  if (savedSummary && !resumeDismissed) {
+    return (
+      <div className="center-column">
+        <h1>Welcome back</h1>
+        <div className="card">
+          <p style={{ marginBottom: 14 }}>
+            You have a career in progress: <strong>{savedSummary.name}</strong> in {savedSummary.countryName}. Saved {timeAgo(savedSummary.savedAt)}.
+          </p>
+          <div className="stack">
+            <button className="btn btn-primary btn-block" onClick={() => loadGame()}>
+              Continue career
+            </button>
+            <button className="btn btn-ghost btn-block" onClick={() => setResumeDismissed(true)}>
+              Start a new career instead
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

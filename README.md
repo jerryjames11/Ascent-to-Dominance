@@ -41,6 +41,11 @@ ladder when you don't hold one, governing dashboard + Authority/Cabinet cards wh
 National Agenda — placeholder until you hold a seat), **Campaign** (the active electoral campaign
 or court-intrigue/party-patronage cycle — placeholder when you're not running for anything).
 
+Your career **autosaves to this browser** (`localStorage`) as you play — no account, no server.
+Reopening the app offers "Continue career" if a save exists. "New career" (top bar) explicitly
+abandons and clears it. It's local to one browser on one machine: clearing site data, a different
+browser, or incognito mode won't see it.
+
 ## Implemented
 
 **Phase 1 — core loop:** character creation, office ladder, Demographic Grid (region × segment
