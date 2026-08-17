@@ -451,6 +451,33 @@ body:has(.rtp-mgmt) .scroll-area{position:fixed!important;inset:0!important;widt
  .center-column .grid-2{grid-template-columns:1fr !important}
 }
 </style>
+
+<style id="rtp-fullscreen-viewport-fix">
+/* Full-browser game viewport: the legacy global HTML zoom was shrinking the entire management UI. */
+html:has(.rtp-mgmt) {
+  zoom: 1 !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  height: 100% !important;
+  background: #061225 !important;
+}
+html:has(.rtp-mgmt) body,
+html:has(.rtp-mgmt) #root {
+  width: 100% !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
+}
+html:has(.rtp-mgmt) .app-shell,
+html:has(.rtp-mgmt) .scroll-area {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: none !important;
+}
+html:has(.rtp-mgmt) .rtp-mgmt {
+  width: 100% !important;
+  max-width: none !important;
+}
+</style>
 </head>
   <body>
     <div id="root"></div>
