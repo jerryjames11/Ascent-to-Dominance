@@ -95,6 +95,83 @@ Error generating stack: `+e.message+`
     grid-row: auto !important;
   }
 }
+
+/* Profile hierarchy + genuinely upgraded ideology presentation */
+.profile-page-compact{}
+.grid-2>.stack:first-child{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(390px,.92fr);gap:12px;align-items:start}
+.grid-2>.stack:first-child>.card{min-width:0;margin:0}
+.grid-2>.stack:first-child>.card:nth-child(1){grid-column:1;grid-row:1}
+.grid-2>.stack:first-child>.card:nth-child(2){grid-column:1/-1;grid-row:2}
+.grid-2>.stack:first-child>.card:nth-child(3){grid-column:1/-1;grid-row:3}
+.grid-2>.stack:first-child>.card:nth-child(4){grid-column:1/-1;grid-row:4}
+.grid-2>.stack:first-child>.card:nth-child(5){grid-column:2;grid-row:1}
+/* ideology card */
+.grid-2>.stack:first-child>.card:nth-child(1){padding:14px 15px;background:linear-gradient(145deg,var(--bg-raised),var(--bg-sunken));border-color:color-mix(in srgb,var(--accent) 35%,var(--border))}
+.grid-2>.stack:first-child>.card:nth-child(1) h3{font-size:1.05rem;letter-spacing:.02em;margin-bottom:10px}
+.grid-2>.stack:first-child>.card:nth-child(1) .row.between{padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:10px}
+.grid-2>.stack:first-child>.card:nth-child(1) .meter{height:9px;border-radius:999px;background:linear-gradient(90deg,var(--bg-sunken),var(--border));box-shadow:inset 0 1px 2px #0004}
+.grid-2>.stack:first-child>.card:nth-child(1) .meter span:first-child{background:linear-gradient(90deg,var(--accent),var(--accent-strong));box-shadow:0 0 8px color-mix(in srgb,var(--accent) 35%,transparent)}
+.grid-2>.stack:first-child>.card:nth-child(1) .muted{font-weight:700;font-size:.72rem}
+.grid-2>.stack:first-child>.card:nth-child(1) .faint{font-size:.62rem}
+/* turn each ideology axis into a compact visual panel */
+.grid-2>.stack:first-child>.card:nth-child(1)>div:not(.row){margin-bottom:10px;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--bg-sunken)}
+/* standing */
+.grid-2>.stack:first-child>.card:nth-child(2){padding:13px 15px;margin-top:0}
+.grid-2>.stack:first-child>.card:nth-child(2) h3{margin-bottom:12px}
+.grid-2>.stack:first-child>.card:nth-child(2)>.row:first-of-type{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 12px!important;align-items:center}
+.grid-2>.stack:first-child>.card:nth-child(2)>.row:first-of-type>div{min-width:0;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-sunken)}
+.grid-2>.stack:first-child>.card:nth-child(2)>.row:last-child{padding-top:9px;border-top:1px solid var(--border)}
+@media(max-width:900px){.grid-2>.stack:first-child{grid-template-columns:1fr}.grid-2>.stack:first-child>.card:nth-child(1),.grid-2>.stack:first-child>.card:nth-child(2),.grid-2>.stack:first-child>.card:nth-child(3),.grid-2>.stack:first-child>.card:nth-child(4),.grid-2>.stack:first-child>.card:nth-child(5){grid-column:1;grid-row:auto}}
+</style>
+<style id="phone-dense-grid-fix">
+/* Portrait phone: keep dashboard cards compact instead of forcing every card full-width. */
+@media (max-width: 640px) {
+  .grid-2, .grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+  .grid-2 > *, .grid-3 > * {
+    min-width: 0 !important;
+  }
+  .grid-2 > .stack, .grid-3 > .stack {
+    min-width: 0 !important;
+  }
+  .card {
+    min-width: 0;
+    padding: 11px 10px;
+  }
+  .card h3 { font-size: .92rem; }
+  .row { gap: 7px; }
+  .wide-column, .center-column {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  /* Profile: retain the compact two-panel hierarchy on phones. */
+  .grid-2 > .stack:first-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+  .grid-2 > .stack:first-child > .card:nth-child(1),
+  .grid-2 > .stack:first-child > .card:nth-child(5) {
+    grid-column: auto !important;
+    grid-row: 1 !important;
+  }
+  .grid-2 > .stack:first-child > .card:nth-child(2),
+  .grid-2 > .stack:first-child > .card:nth-child(3),
+  .grid-2 > .stack:first-child > .card:nth-child(4) {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+}
+
+@media (max-width: 360px) {
+  .grid-2, .grid-3,
+  .grid-2 > .stack:first-child {
+    gap: 6px !important;
+  }
+  .card { padding: 9px 8px; }
+}
 </style>
 </head>
   <body>
