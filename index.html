@@ -466,10 +466,469 @@ td { border-color: #17304a !important; }
 }
 
 </style>
+<style id="rise-to-power-management-screens">
+/* Rise to Power — Country / Legislature / Campaign management screens */
+
+/* Shared management-screen framing */
+.rtp-country .wide-column,
+.rtp-legislature .wide-column,
+.rtp-campaign .wide-column,
+.rtp-country .center-column,
+.rtp-legislature .center-column,
+.rtp-campaign .center-column {
+  max-width: 1540px !important;
+  padding: 20px 24px 56px !important;
+}
+
+.rtp-country .wide-column > h1,
+.rtp-legislature .wide-column > h1,
+.rtp-campaign .wide-column > h1,
+.rtp-country .center-column > h1,
+.rtp-legislature .center-column > h1,
+.rtp-campaign .center-column > h1 {
+  position: relative;
+  letter-spacing: -.035em !important;
+  font-size: 25px !important;
+  color: #f6f9fc !important;
+  background: linear-gradient(135deg, #102640 0%, #0a1829 72%) !important;
+  border: 1px solid #23415f !important;
+  border-radius: 10px 10px 0 0 !important;
+  padding: 18px 20px 3px !important;
+  box-shadow: inset 0 1px #ffffff0b, 0 8px 28px #00000020 !important;
+}
+
+.rtp-country .wide-column > h1::before,
+.rtp-legislature .wide-column > h1::before,
+.rtp-campaign .wide-column > h1::before {
+  content: '';
+  display: block;
+  width: 34px;
+  height: 3px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #55d98b, #f0c45b);
+  margin-bottom: 9px;
+}
+
+.rtp-country .wide-column > h1 + p,
+.rtp-legislature .wide-column > h1 + p,
+.rtp-campaign .wide-column > h1 + p,
+.rtp-country .center-column > h1 + p,
+.rtp-legislature .center-column > h1 + p,
+.rtp-campaign .center-column > h1 + p {
+  border: 1px solid #23415f !important;
+  border-top: 0 !important;
+  border-radius: 0 0 10px 10px !important;
+  background: linear-gradient(135deg, #102640 0%, #0a1829 72%) !important;
+  padding: 0 20px 16px !important;
+  margin: 0 0 14px !important;
+  color: #8fa5bc !important;
+}
+
+.rtp-country .wide-column > h1 + p + p,
+.rtp-campaign .wide-column > h1 + p + p {
+  background: #081728 !important;
+  border: 1px solid #17334e !important;
+  border-radius: 7px !important;
+  padding: 7px 11px !important;
+  margin: 0 0 12px !important;
+  font-size: .68rem !important;
+}
+
+/* Stronger card hierarchy */
+.rtp-country .card,
+.rtp-legislature .card,
+.rtp-campaign .card {
+  background: linear-gradient(145deg, #0e2239 0%, #09192c 100%) !important;
+  border: 1px solid #1e3b58 !important;
+  border-radius: 9px !important;
+  box-shadow: 0 8px 24px #00000020, inset 0 1px #ffffff07 !important;
+}
+
+.rtp-country .card:hover,
+.rtp-legislature .card:hover,
+.rtp-campaign .card:hover { border-color: #315574 !important; }
+
+.rtp-country .card h3,
+.rtp-legislature .card h3,
+.rtp-campaign .card h3 {
+  color: #eaf1f7 !important;
+  text-transform: uppercase;
+  letter-spacing: .055em !important;
+  font-size: .78rem !important;
+}
+
+.rtp-country .grid-2,
+.rtp-legislature .grid-2,
+.rtp-campaign .grid-2 { gap: 14px !important; }
+
+.rtp-country .grid-3,
+.rtp-legislature .grid-3,
+.rtp-campaign .grid-3 { gap: 10px !important; }
+
+/* COUNTRY — national management dashboard */
+.rtp-country .wide-column > .card {
+  margin-bottom: 14px !important;
+}
+
+.rtp-country .wide-column > .card[style*="var(--warn)"],
+.rtp-country .wide-column > .card[style*="--warn"] {
+  border-color: #6f5925 !important;
+  background: linear-gradient(145deg, #2a2414, #111c25) !important;
+  box-shadow: 0 0 0 1px #f0c45b12, 0 8px 26px #0000002a !important;
+}
+
+.rtp-country .wide-column > .grid-2 {
+  grid-template-columns: minmax(0, 1.18fr) minmax(330px, .82fr) !important;
+  align-items: stretch !important;
+}
+
+.rtp-country .wide-column > .grid-2:nth-of-type(1) .card:first-child {
+  background: linear-gradient(145deg, #102b40, #0b1a2b) !important;
+}
+
+.rtp-country .wide-column > .grid-2 .card {
+  min-height: 100%;
+}
+
+.rtp-country .wide-column > .grid-2 .row.between {
+  min-height: 24px;
+}
+
+.rtp-country .wide-column .stat-tile {
+  background: #081829 !important;
+  border: 1px solid #1b3854 !important;
+  border-radius: 8px !important;
+  padding: 10px 11px !important;
+}
+
+.rtp-country .wide-column .stat-tile .value {
+  color: #f5f9fc !important;
+  font-size: 1.55rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -.04em !important;
+}
+
+.rtp-country .wide-column > .grid-2:last-child {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+}
+
+.rtp-country .wide-column > .grid-2:last-child .grid-3 > div {
+  background: #081829;
+  border: 1px solid #193650;
+  border-radius: 7px;
+  padding: 9px;
+}
+
+.rtp-country .wide-column > .grid-2:last-child .value {
+  color: #eef6fb !important;
+  font-weight: 800 !important;
+}
+
+.rtp-country .wide-column .meter,
+.rtp-legislature .wide-column .meter,
+.rtp-campaign .wide-column .meter {
+  height: 7px !important;
+  border-radius: 999px !important;
+  background: #162d45 !important;
+  overflow: hidden !important;
+  box-shadow: inset 0 1px 2px #00000055 !important;
+}
+
+.rtp-country .wide-column .meter span,
+.rtp-legislature .wide-column .meter span,
+.rtp-campaign .wide-column .meter span {
+  background: linear-gradient(90deg, #3fbd77, #70e49c) !important;
+  box-shadow: 0 0 8px #55d98b45 !important;
+}
+
+/* Authority / executive mechanics get a distinctive strategic panel */
+.rtp-country .wide-column .card:has(h3:first-child) {
+  transition: border-color .15s ease, transform .15s ease;
+}
+.rtp-country .wide-column .card:has(h3:first-child) button:not(.btn-primary):not(.btn-danger) {
+  background: #10263d !important;
+}
+
+/* LEGISLATURE — chamber / bills / voting command center */
+.rtp-legislature .wide-column > .grid-2 {
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr) !important;
+  align-items: start !important;
+}
+
+.rtp-legislature .wide-column > .grid-2 > .stack {
+  gap: 14px !important;
+}
+
+.rtp-legislature .wide-column > .grid-2 > .stack > .card:first-child {
+  background: linear-gradient(145deg, #102b43, #091a2d) !important;
+}
+
+.rtp-legislature .wide-column > .grid-2 > .stack > .card:first-child h3 {
+  color: #dfeaf3 !important;
+}
+
+.rtp-legislature .wide-column .option-card,
+.rtp-legislature .wide-column .bill-card {
+  background: #0a1b2d !important;
+  border: 1px solid #1b3956 !important;
+  border-radius: 7px !important;
+  padding: 9px 10px !important;
+}
+
+.rtp-legislature .wide-column input,
+.rtp-legislature .wide-column select,
+.rtp-legislature .wide-column textarea,
+.rtp-campaign .wide-column input,
+.rtp-campaign .wide-column select,
+.rtp-campaign .wide-column textarea {
+  background: #071727 !important;
+  color: #e8f0f6 !important;
+  border: 1px solid #23445f !important;
+  border-radius: 6px !important;
+  box-shadow: inset 0 1px 3px #00000030 !important;
+}
+
+.rtp-legislature .wide-column input:focus,
+.rtp-legislature .wide-column select:focus,
+.rtp-campaign .wide-column input:focus,
+.rtp-campaign .wide-column select:focus {
+  border-color: #55d98b !important;
+  outline: 1px solid #55d98b30 !important;
+}
+
+.rtp-legislature .wide-column table {
+  background: #081829 !important;
+  border: 1px solid #193650 !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+
+.rtp-legislature .wide-column th {
+  background: #0d2238 !important;
+  padding: 8px !important;
+  text-transform: uppercase;
+  font-size: .61rem !important;
+  letter-spacing: .07em;
+}
+
+.rtp-legislature .wide-column td {
+  padding: 8px !important;
+  color: #c6d4e0 !important;
+}
+
+.rtp-legislature .wide-column .divider { border-color: #193650 !important; }
+
+/* Make seat-composition graphics feel like a sports lineup / depth chart */
+.rtp-legislature .wide-column svg {
+  filter: drop-shadow(0 4px 12px #0000002a);
+}
+.rtp-legislature .wide-column svg text {
+  fill: #b7c9d9 !important;
+}
+
+/* CAMPAIGN — front office / election war room */
+.rtp-campaign .wide-column > .row:first-child {
+  background: linear-gradient(135deg, #102640, #0a192b) !important;
+  border: 1px solid #23415f !important;
+  border-radius: 10px 10px 0 0 !important;
+  padding: 17px 20px 2px !important;
+  margin-bottom: 0 !important;
+}
+
+.rtp-campaign .wide-column > .row:first-child + p {
+  background: linear-gradient(135deg, #102640, #0a192b) !important;
+  border: 1px solid #23415f !important;
+  border-top: 0 !important;
+  border-radius: 0 0 10px 10px !important;
+  padding: 0 20px 14px !important;
+  margin-bottom: 5px !important;
+}
+
+.rtp-campaign .wide-column > .row:first-child h1 {
+  font-size: 24px !important;
+  color: #f6f9fc !important;
+}
+
+.rtp-campaign .wide-column > .row:first-child .badge {
+  background: #173b31 !important;
+  border-color: #2a7456 !important;
+  color: #72e7a3 !important;
+}
+
+.rtp-campaign .wide-column > .meter:first-of-type {
+  height: 5px !important;
+  margin: 0 0 13px !important;
+  border-radius: 0 !important;
+  background: #152b43 !important;
+}
+
+.rtp-campaign .wide-column .stat-strip {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 7px !important;
+  padding: 0 !important;
+}
+
+.rtp-campaign .wide-column .stat-strip .item {
+  position: relative;
+  background: #081829 !important;
+  border: 1px solid #193650 !important;
+  border-radius: 7px !important;
+  min-height: 65px !important;
+  padding: 9px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: flex-start !important;
+}
+
+.rtp-campaign .wide-column .stat-strip .n {
+  color: #f0f6fb !important;
+  font-size: 1.18rem !important;
+  line-height: 1.05 !important;
+  font-weight: 800 !important;
+}
+
+.rtp-campaign .wide-column .stat-strip .l {
+  color: #70869d !important;
+  text-transform: uppercase;
+  font-size: .58rem !important;
+  letter-spacing: .08em !important;
+  margin-top: 4px !important;
+}
+
+.rtp-campaign .wide-column .mini-bar {
+  width: 100% !important;
+  height: 3px !important;
+  background: #162d45 !important;
+  margin-top: 5px !important;
+  border-radius: 99px !important;
+}
+.rtp-campaign .wide-column .mini-bar span {
+  background: #55d98b !important;
+  height: 100% !important;
+  display: block !important;
+  border-radius: inherit !important;
+}
+
+.rtp-campaign .wide-column .poll-line {
+  display: grid !important;
+  grid-template-columns: minmax(78px, .32fr) 1fr 48px !important;
+  gap: 9px !important;
+  align-items: center !important;
+  margin: 7px 0 !important;
+}
+.rtp-campaign .wide-column .poll-line .name {
+  color: #b6c7d7 !important;
+  font-size: .72rem !important;
+}
+.rtp-campaign .wide-column .poll-line .bar {
+  height: 8px !important;
+  background: #162d45 !important;
+  border-radius: 999px !important;
+  overflow: hidden !important;
+}
+.rtp-campaign .wide-column .poll-line .bar span {
+  background: linear-gradient(90deg, #4dbbff, #6fdc9b) !important;
+  display: block !important;
+  height: 100% !important;
+  border-radius: inherit !important;
+}
+.rtp-campaign .wide-column .poll-line .pct {
+  color: #edf4f9 !important;
+  text-align: right !important;
+  font-weight: 750 !important;
+}
+
+.rtp-campaign .wide-column .card[style*="var(--warn)"] {
+  background: linear-gradient(145deg, #2a2414, #111d28) !important;
+  border-color: #6f5925 !important;
+}
+
+.rtp-campaign .wide-column .btn-primary {
+  background: linear-gradient(135deg, #5bdc91, #35ad69) !important;
+  box-shadow: 0 7px 18px #2eaa6528 !important;
+}
+
+/* Active-objective / action cards */
+.rtp-campaign .wide-column .option-card,
+.rtp-campaign .wide-column .action-card {
+  background: #08192a !important;
+  border: 1px solid #1a3853 !important;
+  border-radius: 7px !important;
+}
+
+/* Shared button polish on all three screens */
+.rtp-country .btn,
+.rtp-legislature .btn,
+.rtp-campaign .btn {
+  min-height: 30px;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease;
+}
+.rtp-country .btn:hover:not(:disabled),
+.rtp-legislature .btn:hover:not(:disabled),
+.rtp-campaign .btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px #00000028;
+}
+
+/* No-office states: turn the placeholder into a real game panel */
+.rtp-legislature .tab-placeholder,
+.rtp-country .tab-placeholder,
+.rtp-campaign .tab-placeholder {
+  max-width: 760px !important;
+  margin: 24px auto !important;
+  background: linear-gradient(145deg, #0e2239, #09192c) !important;
+  border: 1px solid #294a6c !important;
+  border-radius: 12px !important;
+  box-shadow: 0 14px 36px #00000028 !important;
+}
+
+/* Responsive */
+@media (max-width: 1050px) {
+  .rtp-country .wide-column > .grid-2,
+  .rtp-legislature .wide-column > .grid-2 { grid-template-columns: 1fr !important; }
+  .rtp-campaign .wide-column .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+@media (max-width: 760px) {
+  .rtp-country .wide-column,
+  .rtp-legislature .wide-column,
+  .rtp-campaign .wide-column,
+  .rtp-country .center-column,
+  .rtp-legislature .center-column,
+  .rtp-campaign .center-column { padding: 12px 10px 48px !important; }
+  .rtp-campaign .wide-column .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .rtp-campaign .wide-column .poll-line { grid-template-columns: 66px 1fr 42px !important; }
+}
+
+</style>
 </head>
   <body>
     <div id="root"></div>
 
-  </body>
+  <script>
+(function(){
+  function syncRtpScreen(){
+    var root=document.getElementById('root');
+    if(!root) return;
+    var active=document.querySelector('.bottom-nav-item.active');
+    var label=active ? (active.textContent||'').trim().toLowerCase() : '';
+    root.classList.remove('rtp-profile','rtp-country','rtp-legislature','rtp-campaign','rtp-world');
+    if(label.indexOf('country')!==-1) root.classList.add('rtp-country');
+    else if(label.indexOf('legislature')!==-1) root.classList.add('rtp-legislature');
+    else if(label.indexOf('campaign')!==-1) root.classList.add('rtp-campaign');
+    else if(label.indexOf('world')!==-1) root.classList.add('rtp-world');
+    else root.classList.add('rtp-profile');
+  }
+  var obs=new MutationObserver(syncRtpScreen);
+  function boot(){
+    syncRtpScreen();
+    obs.observe(document.getElementById('root')||document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+})();
+</script>
+</body>
 </html>
 
